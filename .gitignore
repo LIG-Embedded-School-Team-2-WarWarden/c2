@@ -1,0 +1,51 @@
+# Visual Studio
+.vs/
+
+# Build results
+Debug/
+Release/
+x64/
+x86/
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# C/C++ build files
+*.obj
+*.o
+*.pch
+*.pdb
+*.ilk
+*.idb
+*.ipch
+*.tlog
+*.log
+
+# Executables / libraries
+*.exe
+*.dll
+*.lib
+*.exp
+
+# Visual Studio cache
+*.VC.db
+*.VC.VC.opendb
+*.opensdf
+*.sdf
+
+# Test results
+TestResults/
+
+# NuGet
+packages/
+*.nupkg
+
+# Temporary files
+*.tmp
+*.temp
+~$*
