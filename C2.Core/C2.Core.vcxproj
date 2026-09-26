@@ -144,6 +144,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\attack_command_service.cpp" />
+    <ClCompile Include="src\connection_monitor.cpp" />
     <ClCompile Include="src\effector_command_service.cpp" />
     <ClCompile Include="src\observation_command_service.cpp" />
     <ClCompile Include="src\pointing.cpp" />
@@ -154,6 +155,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\c2\attack_command_service.hpp" />
+    <ClInclude Include="include\c2\connection_monitor.hpp" />
     <ClInclude Include="include\c2\effector_command_service.hpp" />
     <ClInclude Include="include\c2\observation_command_service.hpp" />
     <ClInclude Include="include\c2\pointing.hpp" />
