@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package mfs.icd.v1;
+
+enum ComponentId {
+  COMPONENT_ID_UNSPECIFIED = 0;
+  COMPONENT_ID_OBSERVATION_ASSET = 1;
+  COMPONENT_ID_COMMAND_AND_CONTROL = 2;
+  COMPONENT_ID_EFFECTOR_ASSET = 3;
+}
+
+enum CoordinateFrame {
+  COORDINATE_FRAME_UNSPECIFIED = 0;
+  COORDINATE_FRAME_PROJECT = 1;
+}
+
+message MessageHeader {
+  uint32 protocol_version = 1;
+  uint32 sequence = 2;
+  uint64 timestamp_us = 3;
+  ComponentId source_id = 4;
+  ComponentId destination_id = 5;
+}
+
+// Both assets publish their installation pose in the common PROJECT_FRAME.
+// Azimuth is measured from +X toward +Y and normalized to [0, 360) degrees.
+message AssetPose {
+  MessageHeader header = 1;
+  CoordinateFrame coordinate_frame = 2;
+  float x_m = 3;
+  float y_m = 4;
+  float z_m = 5;
+  float azimuth_deg = 6;
+}
+
+// The observation asset converts sensor-local results into PROJECT_FRAME world
+// coordinates before transmission. C2 must not apply this conversion again.
+message TargetCoordinate {
+  MessageHeader header = 1;
+  uint32 detection_id = 2;
+  uint64 measurement_time_us = 3;
+  CoordinateFrame coordinate_frame = 4;
+  float x_m = 5;
+  float y_m = 6;
+  float z_m = 7;
+  float confidence = 8;
+}
+
+message EffectorTurretCommand {
+  MessageHeader header = 1;
+  uint32 command_id = 2;
+  uint32 target_id = 3;
+  float target_pan_deg = 4;
+  float target_tilt_deg = 5;
+  uint64 valid_until_us = 6;
+}
