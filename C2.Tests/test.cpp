@@ -43,6 +43,28 @@ c2::EffectorTurretCommand valid_command() {
             1'000'001};
 }
 
+c2::TargetCoordinate target_at(const float x, const float y, const float z) {
+    auto target = valid_target();
+    target.x_m = x;
+    target.y_m = y;
+    target.z_m = z;
+    return target;
+}
+
+c2::AssetPose effector_at(
+    const float x,
+    const float y,
+    const float z,
+    const float azimuth_deg = 0.0F,
+    const c2::ComponentId source = c2::ComponentId::effector_asset) {
+    auto pose = valid_pose(source);
+    pose.x_m = x;
+    pose.y_m = y;
+    pose.z_m = z;
+    pose.azimuth_deg = azimuth_deg;
+    return pose;
+}
+
 bool has_error(const c2::ValidationResult& result, const std::string_view expected) {
     return std::find(result.errors.begin(), result.errors.end(), expected) != result.errors.end();
 }
@@ -214,47 +236,122 @@ TEST(EffectorTurretCommandContractTest, RejectsExpiryAtOrBeforeCommandTimestamp)
 }
 
 TEST(EffectorPointingTest, CalculatesPanAndTiltFromProjectFrame) {
-    const c2::TargetCoordinate target{
-        header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
-        42, 999'000, c2::CoordinateFrame::project_frame, 10.0F, 10.0F, 10.0F, 0.9F};
-    const c2::AssetPose effector{
-        header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
-        c2::CoordinateFrame::project_frame, 0.0F, 0.0F, 0.0F, 0.0F};
-
-    const auto calculated = c2::calculate_effector_pointing(target, effector);
+    const auto calculated =
+        c2::calculate_effector_pointing(target_at(10.0F, 10.0F, 10.0F),
+                                        effector_at(0.0F, 0.0F, 0.0F));
     ASSERT_TRUE(std::holds_alternative<c2::PointingSolution>(calculated));
     const auto& solution = std::get<c2::PointingSolution>(calculated);
+    EXPECT_NEAR(solution.relative_x_m, 10.0F, 1.0e-4F);
+    EXPECT_NEAR(solution.relative_y_m, 10.0F, 1.0e-4F);
+    EXPECT_NEAR(solution.relative_z_m, 10.0F, 1.0e-4F);
     EXPECT_NEAR(solution.pan_deg, 45.0F, 1.0e-4F);
     EXPECT_NEAR(solution.tilt_deg, 35.26439F, 1.0e-4F);
 }
 
 TEST(EffectorPointingTest, AppliesEffectorInstallationPositionAndAzimuth) {
-    const c2::TargetCoordinate target{
-        header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
-        42, 999'000, c2::CoordinateFrame::project_frame, 10.0F, 10.0F, 0.0F, 0.9F};
-    const c2::AssetPose effector{
-        header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
-        c2::CoordinateFrame::project_frame, 10.0F, 0.0F, 0.0F, 90.0F};
-
-    const auto calculated = c2::calculate_effector_pointing(target, effector);
+    const auto calculated =
+        c2::calculate_effector_pointing(target_at(10.0F, 10.0F, 7.0F),
+                                        effector_at(10.0F, 0.0F, 2.0F, 90.0F));
     ASSERT_TRUE(std::holds_alternative<c2::PointingSolution>(calculated));
     const auto& solution = std::get<c2::PointingSolution>(calculated);
     EXPECT_NEAR(solution.relative_x_m, 10.0F, 1.0e-4F);
     EXPECT_NEAR(solution.relative_y_m, 0.0F, 1.0e-4F);
+    EXPECT_NEAR(solution.relative_z_m, 5.0F, 1.0e-4F);
     EXPECT_NEAR(solution.pan_deg, 0.0F, 1.0e-4F);
+    EXPECT_NEAR(solution.tilt_deg, 26.56505F, 1.0e-4F);
 }
 
-TEST(EffectorPointingTest, RejectsCommandOutsideConfiguredLimits) {
-    const c2::TargetCoordinate target{
-        header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
-        42, 999'000, c2::CoordinateFrame::project_frame, 0.0F, 10.0F, 0.0F, 0.9F};
-    const c2::AssetPose effector{
-        header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
-        c2::CoordinateFrame::project_frame, 0.0F, 0.0F, 0.0F, 0.0F};
+TEST(EffectorPointingTest, CalculatesCardinalPanAnglesAndNormalizesRearToNegative180) {
+    struct Case {
+        float x;
+        float y;
+        float expected_pan;
+    };
+    constexpr std::array cases{
+        Case{10.0F, 0.0F, 0.0F},
+        Case{0.0F, 10.0F, 90.0F},
+        Case{0.0F, -10.0F, -90.0F},
+        Case{-10.0F, 0.0F, -180.0F},
+    };
 
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.expected_pan);
+        const auto calculated = c2::calculate_effector_pointing(
+            target_at(test_case.x, test_case.y, 0.0F), effector_at(0.0F, 0.0F, 0.0F));
+        ASSERT_TRUE(std::holds_alternative<c2::PointingSolution>(calculated));
+        EXPECT_NEAR(
+            std::get<c2::PointingSolution>(calculated).pan_deg, test_case.expected_pan, 1.0e-4F);
+    }
+}
+
+TEST(EffectorPointingTest, CalculatesVerticalUpAndDownTilt) {
+    for (const auto expected_tilt : {-90.0F, 90.0F}) {
+        SCOPED_TRACE(expected_tilt);
+        const auto calculated = c2::calculate_effector_pointing(
+            target_at(0.0F, 0.0F, expected_tilt), effector_at(0.0F, 0.0F, 0.0F));
+        ASSERT_TRUE(std::holds_alternative<c2::PointingSolution>(calculated));
+        const auto& solution = std::get<c2::PointingSolution>(calculated);
+        EXPECT_NEAR(solution.pan_deg, 0.0F, 1.0e-4F);
+        EXPECT_NEAR(solution.tilt_deg, expected_tilt, 1.0e-4F);
+    }
+}
+
+TEST(EffectorPointingTest, AcceptsSolutionExactlyOnConfiguredLimits) {
     const auto calculated = c2::calculate_effector_pointing(
-        target, effector, c2::PointingLimits{-45.0F, 45.0F, -20.0F, 20.0F});
+        target_at(10.0F, 0.0F, 0.0F),
+        effector_at(0.0F, 0.0F, 0.0F),
+        c2::PointingLimits{0.0F, 0.0F, 0.0F, 0.0F});
+    ASSERT_TRUE(std::holds_alternative<c2::PointingSolution>(calculated));
+}
+
+TEST(EffectorPointingTest, RejectsPanOutsideConfiguredLimits) {
+    const auto calculated = c2::calculate_effector_pointing(
+        target_at(0.0F, 10.0F, 0.0F),
+        effector_at(0.0F, 0.0F, 0.0F),
+        c2::PointingLimits{-45.0F, 45.0F, -20.0F, 20.0F});
     ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
     EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::outside_turret_limits);
+}
+
+TEST(EffectorPointingTest, RejectsTiltOutsideConfiguredLimits) {
+    const auto calculated = c2::calculate_effector_pointing(
+        target_at(10.0F, 0.0F, 10.0F),
+        effector_at(0.0F, 0.0F, 0.0F),
+        c2::PointingLimits{-45.0F, 45.0F, -20.0F, 20.0F});
+    ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
+    EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::outside_turret_limits);
+}
+
+TEST(EffectorPointingTest, RejectsInvalidTarget) {
+    auto target = target_at(10.0F, 0.0F, 0.0F);
+    target.coordinate_frame = c2::CoordinateFrame::unspecified;
+    const auto calculated =
+        c2::calculate_effector_pointing(target, effector_at(0.0F, 0.0F, 0.0F));
+    ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
+    EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::invalid_target);
+}
+
+TEST(EffectorPointingTest, RejectsObservationAssetPoseAsEffector) {
+    const auto calculated = c2::calculate_effector_pointing(
+        target_at(10.0F, 0.0F, 0.0F),
+        effector_at(0.0F, 0.0F, 0.0F, 0.0F, c2::ComponentId::observation_asset));
+    ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
+    EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::invalid_effector_pose);
+}
+
+TEST(EffectorPointingTest, RejectsInvalidEffectorPose) {
+    auto effector = effector_at(0.0F, 0.0F, 0.0F);
+    effector.coordinate_frame = c2::CoordinateFrame::unspecified;
+    const auto calculated =
+        c2::calculate_effector_pointing(target_at(10.0F, 0.0F, 0.0F), effector);
+    ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
+    EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::invalid_effector_pose);
+}
+
+TEST(EffectorPointingTest, RejectsTargetCoincidentWithEffector) {
+    const auto calculated = c2::calculate_effector_pointing(
+        target_at(10.0F, 5.0F, 2.0F), effector_at(10.0F, 5.0F, 2.0F, 270.0F));
+    ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
+    EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::coincident_target);
 }
 }  // namespace
