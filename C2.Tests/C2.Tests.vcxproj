@@ -107,6 +107,7 @@
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="effector_command_service_test.cpp" />
     <ClCompile Include="observation_command_service_test.cpp" />
     <ClCompile Include="protobuf_codec_test.cpp" />
     <ClCompile Include="protocol_status_test.cpp" />
