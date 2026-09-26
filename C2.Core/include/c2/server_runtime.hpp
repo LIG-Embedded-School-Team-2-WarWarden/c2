@@ -5,6 +5,7 @@
 #include "c2/effector_command_service.hpp"
 #include "c2/observation_command_service.hpp"
 #include "c2/state_store.hpp"
+#include "c2/telemetry_store.hpp"
 #include "c2/udp_transport.hpp"
 
 #include <cstddef>
@@ -13,6 +14,7 @@
 #include <optional>
 #include <span>
 #include <variant>
+#include <vector>
 
 namespace c2 {
 struct ServerRuntimeConfig {
@@ -55,6 +57,11 @@ public:
         AttackAction action, std::uint32_t target_id,
         std::uint32_t duration_ms, std::uint64_t now_us);
     [[nodiscard]] bool pose_resynchronization_required(ComponentId source) const;
+    [[nodiscard]] std::optional<ObservationStatus> observation_status() const;
+    [[nodiscard]] std::optional<EffectorStatus> effector_status() const;
+    [[nodiscard]] std::optional<CommandAck> acknowledgement(
+        ComponentId source, std::uint32_t command_id) const;
+    [[nodiscard]] std::vector<ErrorReport> errors() const;
 
 private:
     [[nodiscard]] std::optional<DispatchError> connection_error(
@@ -65,6 +72,7 @@ private:
     ServerRuntimeConfig config_;
     DatagramSender sender_;
     StateStore state_;
+    TelemetryStore telemetry_;
     ConnectionMonitor connections_;
     ObservationCommandService observation_commands_;
     EffectorCommandService effector_commands_;
