@@ -8,6 +8,12 @@
 #include <limits>
 
 namespace c2 {
+namespace {
+std::uint32_t next_non_zero(std::uint32_t value) noexcept {
+    return value == std::numeric_limits<std::uint32_t>::max() ? 1U : value + 1U;
+}
+}
+
 ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
     : config_(std::move(config)),
       sender_(std::move(sender)),
@@ -117,6 +123,25 @@ AttackDispatchResult ServerRuntime::attack(
     return command;
 }
 
+void ServerRuntime::send_heartbeats(
+    const std::uint64_t now_us, const std::uint64_t uptime_ms) {
+    std::lock_guard lock(heartbeat_mutex_);
+    Heartbeat observation{
+        {protocol_version, next_observation_heartbeat_sequence_, now_us,
+         ComponentId::command_and_control, ComponentId::observation_asset},
+        AssetOperatingState::operating, uptime_ms, now_us};
+    Heartbeat effector{
+        {protocol_version, next_effector_heartbeat_sequence_, now_us,
+         ComponentId::command_and_control, ComponentId::effector_asset},
+        AssetOperatingState::operating, uptime_ms, now_us};
+    dispatch(observation, config_.observation_endpoint);
+    dispatch(effector, config_.effector_endpoint);
+    next_observation_heartbeat_sequence_ =
+        next_non_zero(next_observation_heartbeat_sequence_);
+    next_effector_heartbeat_sequence_ =
+        next_non_zero(next_effector_heartbeat_sequence_);
+}
+
 bool ServerRuntime::pose_resynchronization_required(const ComponentId source) const {
     return connections_.pose_resynchronization_required(source);
 }
@@ -141,12 +166,6 @@ template <typename Message>
 void ServerRuntime::dispatch(const Message& message, const Endpoint& endpoint) {
     const auto encoded = protobuf::encode(Envelope{message});
     sender_(encoded, endpoint);
-}
-
-namespace {
-std::uint32_t next_non_zero(std::uint32_t value) noexcept {
-    return value == std::numeric_limits<std::uint32_t>::max() ? 1U : value + 1U;
-}
 }
 
 void ServerRuntime::assign_effector_identity(EffectorTurretCommand& command) {

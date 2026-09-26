@@ -148,4 +148,30 @@ TEST(ServerRuntimeTest, UsesOneIdentitySequenceForAllEffectorCommands) {
     EXPECT_EQ(point_command.header.sequence, 1U);
     EXPECT_EQ(arm_command.header.sequence, 2U);
 }
+
+TEST(ServerRuntimeTest, SendsHeartbeatToBothAssets) {
+    struct Sent { std::vector<std::byte> data; c2::Endpoint endpoint; };
+    std::vector<Sent> sent;
+    c2::ServerRuntime server(config(), [&](auto data, const auto& endpoint) {
+        sent.push_back({{data.begin(), data.end()}, endpoint});
+    });
+
+    server.send_heartbeats(100, 25);
+
+    ASSERT_EQ(sent.size(), 2U);
+    EXPECT_EQ(sent[0].endpoint.port, 5101);
+    EXPECT_EQ(sent[1].endpoint.port, 6001);
+    for (std::size_t index = 0; index < sent.size(); ++index) {
+        const auto decoded = c2::protobuf::decode(sent[index].data);
+        ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+        const auto& heartbeat = std::get<c2::Heartbeat>(
+            std::get<c2::Envelope>(decoded).payload);
+        EXPECT_EQ(heartbeat.header.source_id,
+                  c2::ComponentId::command_and_control);
+        EXPECT_EQ(heartbeat.header.destination_id,
+                  index == 0 ? c2::ComponentId::observation_asset
+                             : c2::ComponentId::effector_asset);
+        EXPECT_EQ(heartbeat.uptime_ms, 25U);
+    }
+}
 }  // namespace
