@@ -109,6 +109,7 @@
   <ItemGroup>
     <ClCompile Include="protobuf_codec_test.cpp" />
     <ClCompile Include="protocol_status_test.cpp" />
+    <ClCompile Include="state_store_test.cpp" />
     <ClCompile Include="test.cpp" />
     <ClCompile Include="udp_transport_test.cpp" />
     <ClCompile Include="pch.cpp">

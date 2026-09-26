@@ -146,6 +146,7 @@
     <ClCompile Include="src\pointing.cpp" />
     <ClCompile Include="src\protobuf_codec.cpp" />
     <ClCompile Include="src\protocol_validation.cpp" />
+    <ClCompile Include="src\state_store.cpp" />
     <ClCompile Include="src\udp_transport.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -153,6 +154,7 @@
     <ClInclude Include="include\c2\protobuf_codec.hpp" />
     <ClInclude Include="include\c2\protocol.hpp" />
     <ClInclude Include="include\c2\protocol_validation.hpp" />
+    <ClInclude Include="include\c2\state_store.hpp" />
     <ClInclude Include="include\c2\udp_transport.hpp" />
   </ItemGroup>
   <ItemGroup>
