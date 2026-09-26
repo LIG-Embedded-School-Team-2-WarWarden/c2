@@ -49,18 +49,21 @@ int main() {
         transport.start();
         const auto started = std::chrono::steady_clock::now();
         std::jthread publisher([&](const std::stop_token stop) {
+            std::uint32_t tick{};
             while (!stop.stop_requested()) {
                 const auto now = now_us();
                 const auto uptime = static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - started).count());
                 (void)asset.check_watchdog(now, 3'000'000);
-                send(transport, asset.asset_pose(now), status_endpoint);
                 send(transport, asset.status(now), status_endpoint);
-                send(transport, asset.heartbeat(now, uptime), status_endpoint);
-                send(transport, asset.target(1, 100, 20, 10, 0.95F, now), target_endpoint);
-                for (int tick = 0; tick < 10 && !stop.stop_requested(); ++tick)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                if (tick % 10 == 0) {
+                    send(transport, asset.asset_pose(now), status_endpoint);
+                    send(transport, asset.heartbeat(now, uptime), status_endpoint);
+                    send(transport, asset.target(1, 100, 20, 10, 0.95F, now), target_endpoint);
+                }
+                ++tick;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         });
         std::cout << "Dummy observation asset started on UDP 5101. Type quit to stop.\n";

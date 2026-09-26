@@ -12,7 +12,7 @@ MFS 시연 체계의 C++20 기반 통제소 서버다. UDP/Protobuf 수신, 자�
 5. 계산 결과를 `EffectorTurretCommand`로 전송한다.
 
 버전 관리되는 메시지 계약은 `protocol/mfs.proto`, 결정 근거는
-`docs/decisions/ADR-001-project-frame-targets.md`에서 관리한다.
+`docs/decisions/`에서 관리한다.
 
 ## 빌드 및 시험
 
@@ -48,8 +48,8 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드 및 전체 테�
 |---|---:|---|
 | 관측 → 통제소 | 5001 | AssetPose, ObservationStatus, Heartbeat |
 | 관측 → 통제소 | 5002 | TargetCoordinate |
-| 통제소 → 관측 | 5101 | ObservationTurretCommand |
-| 통제소 → 타격 | 6001 | EffectorTurretCommand, AttackCommand |
+| 통제소 → 관측 | 5101 | ObservationTurretCommand, Heartbeat |
+| 통제소 → 타격 | 6001 | EffectorTurretCommand, AttackCommand, Heartbeat |
 | 타격 → 통제소 | 6002 | AssetPose, EffectorStatus, CommandAck, Heartbeat |
 
 모든 주소와 포트는 `--bind`, `--observation-ip`, `--effector-ip`,
@@ -72,3 +72,19 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드 및 전체 테�
 완료되어야 전송된다. `STOP`과 `EMERGENCY_STOP`은 안전 우선 명령이므로 이 조건을
 우회한다. timeout, 장비 한계 및 주소는 현재 ICD의 TBD 항목이므로 런타임 설정 확장이
 필요한 배포 환경에서는 확정값으로 교체해야 한다.
+
+## 더미 자산 통합 시연
+
+빌드 후 PowerShell 창 세 개에서 다음 프로그램을 각각 실행한다.
+
+```powershell
+.\x64\Release\Dummy.Observation.exe
+.\x64\Release\Dummy.Effector.exe
+.\x64\Release\C2.Server.exe
+```
+
+서버에서 `scan 10 5`, `point 1`, `arm 1`, `start 1 100`을 차례대로 입력하면
+탐색부터 타격 동작 종료까지 로컬 UDP 전체 흐름을 확인할 수 있다. 더미 관측 자산은
+1번 표적의 PROJECT_FRAME 좌표를 생성하며, 두 더미 자산은 `quit`으로 종료한다.
+시연 기본값과 문서의 TBD를 구현하면서 내린 결정은
+`docs/decisions/ADR-002-runtime-defaults-and-command-identity.md`에 정리되어 있다.
