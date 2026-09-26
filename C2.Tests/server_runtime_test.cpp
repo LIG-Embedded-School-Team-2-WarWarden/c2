@@ -117,4 +117,35 @@ TEST(ServerRuntimeTest, EnforcesConnectionForAttackButAlwaysDispatchesEmergencyS
     EXPECT_EQ(std::get<c2::AttackCommand>(std::get<c2::Envelope>(decoded).payload).action,
               c2::AttackAction::emergency_stop);
 }
+
+TEST(ServerRuntimeTest, UsesOneIdentitySequenceForAllEffectorCommands) {
+    std::vector<std::vector<std::byte>> sent;
+    c2::ServerRuntime server(config(), [&](auto data, auto) {
+        sent.emplace_back(data.begin(), data.end());
+    });
+
+    ASSERT_EQ(server.ingest(bytes(heartbeat(c2::ComponentId::effector_asset)), 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(pose(c2::ComponentId::effector_asset)), 101),
+              c2::InboundResult::accepted);
+    c2::TargetCoordinate target{header(c2::ComponentId::observation_asset, 3, 12),
+                                7, 12, c2::CoordinateFrame::project_frame,
+                                10, 0, 0, 1};
+    ASSERT_EQ(server.ingest(bytes(target), 102), c2::InboundResult::accepted);
+    c2::EffectorStatus status{header(c2::ComponentId::effector_asset, 3, 13),
+                              c2::EffectorState::ready, 0, 0, 0, 0,
+                              true, false, false, 0, 13};
+    ASSERT_EQ(server.ingest(bytes(status), 103), c2::InboundResult::accepted);
+
+    const auto point = server.point_effector(7, 104);
+    const auto arm = server.attack(c2::AttackAction::arm, 7, 0, 105);
+    ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(point));
+    ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(arm));
+    const auto& point_command = std::get<c2::EffectorTurretCommand>(point);
+    const auto& arm_command = std::get<c2::AttackCommand>(arm);
+    EXPECT_EQ(point_command.command_id, 1U);
+    EXPECT_EQ(arm_command.command_id, 2U);
+    EXPECT_EQ(point_command.header.sequence, 1U);
+    EXPECT_EQ(arm_command.header.sequence, 2U);
+}
 }  // namespace
