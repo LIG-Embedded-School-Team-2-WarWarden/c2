@@ -1,0 +1,52 @@
+#pragma once
+
+#include "c2/protocol.hpp"
+
+#include <cstdint>
+#include <mutex>
+#include <optional>
+#include <variant>
+
+namespace c2 {
+struct AttackCommandConfig {
+    std::uint64_t command_validity_us{};
+    std::uint32_t first_command_id{1};
+    std::uint32_t first_sequence{1};
+};
+
+enum class AttackStatusUpdateResult { stored, invalid, duplicate, out_of_order };
+
+enum class AttackCommandError {
+    unsupported_action,
+    invalid_time,
+    deadline_overflow,
+    status_unavailable,
+    target_unavailable,
+    target_mismatch,
+    invalid_state,
+    not_aligned,
+    not_armed,
+    invalid_duration,
+};
+
+using AttackCommandResult = std::variant<AttackCommand, AttackCommandError>;
+
+class AttackCommandService final {
+public:
+    explicit AttackCommandService(AttackCommandConfig config);
+
+    [[nodiscard]] AttackStatusUpdateResult update_status(const EffectorStatus& status);
+    [[nodiscard]] bool record_pointing_command(const EffectorTurretCommand& command);
+    [[nodiscard]] AttackCommandResult create(
+        AttackAction action, std::uint32_t target_id,
+        std::uint32_t duration_ms, std::uint64_t now_us);
+
+private:
+    AttackCommandConfig config_;
+    std::mutex mutex_;
+    std::optional<EffectorStatus> status_;
+    std::optional<EffectorTurretCommand> pointing_command_;
+    std::uint32_t next_command_id_;
+    std::uint32_t next_sequence_;
+};
+}  // namespace c2
