@@ -1,6 +1,8 @@
 #include "c2/protocol_validation.hpp"
 
 #include <cmath>
+#include <type_traits>
+#include <variant>
 
 namespace c2 {
 namespace {
@@ -25,6 +27,107 @@ bool supported(const ObservationTurretCommandType type) noexcept {
 bool uses_target_angles(const ObservationTurretCommandType type) noexcept {
     return type == ObservationTurretCommandType::absolute_angle ||
            type == ObservationTurretCommandType::scan;
+}
+
+bool supported(const ObservationState state) noexcept {
+    switch (state) {
+        case ObservationState::off:
+        case ObservationState::initializing:
+        case ObservationState::standby:
+        case ObservationState::operating:
+        case ObservationState::fault:
+            return true;
+        case ObservationState::unspecified:
+        default:
+            return false;
+    }
+}
+
+bool supported(const EffectorState state) noexcept {
+    switch (state) {
+        case EffectorState::off:
+        case EffectorState::initializing:
+        case EffectorState::standby:
+        case EffectorState::slewing:
+        case EffectorState::ready:
+        case EffectorState::active:
+        case EffectorState::fault:
+            return true;
+        case EffectorState::unspecified:
+        default:
+            return false;
+    }
+}
+
+bool supported(const AttackAction action) noexcept {
+    switch (action) {
+        case AttackAction::arm:
+        case AttackAction::start:
+        case AttackAction::stop:
+        case AttackAction::emergency_stop:
+            return true;
+        case AttackAction::unspecified:
+        default:
+            return false;
+    }
+}
+
+bool supported(const CommandResult result) noexcept {
+    switch (result) {
+        case CommandResult::received:
+        case CommandResult::accepted:
+        case CommandResult::in_progress:
+        case CommandResult::completed:
+        case CommandResult::rejected:
+        case CommandResult::failed:
+            return true;
+        case CommandResult::unspecified:
+        default:
+            return false;
+    }
+}
+
+bool supported(const AssetOperatingState state) noexcept {
+    switch (state) {
+        case AssetOperatingState::off:
+        case AssetOperatingState::initializing:
+        case AssetOperatingState::standby:
+        case AssetOperatingState::operating:
+        case AssetOperatingState::slewing:
+        case AssetOperatingState::ready:
+        case AssetOperatingState::active:
+        case AssetOperatingState::fault:
+            return true;
+        case AssetOperatingState::unspecified:
+        default:
+            return false;
+    }
+}
+
+bool supported(const ErrorSeverity severity) noexcept {
+    switch (severity) {
+        case ErrorSeverity::info:
+        case ErrorSeverity::warning:
+        case ErrorSeverity::error:
+        case ErrorSeverity::critical:
+            return true;
+        case ErrorSeverity::unspecified:
+        default:
+            return false;
+    }
+}
+
+ValidationResult validate_asset_message_header(
+    const MessageHeader& header, const char* message_name) {
+    ValidationResult result;
+    if (header.source_id != ComponentId::observation_asset &&
+        header.source_id != ComponentId::effector_asset) {
+        result.errors.emplace_back(std::string(message_name) + " source must be an asset");
+        return result;
+    }
+    append(result, validate_header(
+                       header, header.source_id, ComponentId::command_and_control));
+    return result;
 }
 }  // namespace
 
@@ -68,6 +171,17 @@ ValidationResult validate(const TargetCoordinate& target) {
         result.errors.emplace_back("TargetCoordinate position must be finite");
     if (!finite(target.confidence) || target.confidence < 0.0F || target.confidence > 1.0F)
         result.errors.emplace_back("confidence must be in [0, 1]");
+    return result;
+}
+
+ValidationResult validate(const ObservationStatus& status) {
+    ValidationResult result = validate_header(
+        status.header, ComponentId::observation_asset, ComponentId::command_and_control);
+    if (!supported(status.state)) result.errors.emplace_back("unsupported observation state");
+    if (!finite(status.current_pan_deg) || !finite(status.current_tilt_deg))
+        result.errors.emplace_back("current angles must be finite");
+    if (status.timestamp_us == 0)
+        result.errors.emplace_back("status timestamp_us must be non-zero");
     return result;
 }
 
@@ -117,5 +231,74 @@ ValidationResult validate(const EffectorTurretCommand& command) {
     if (command.valid_until_us <= command.header.timestamp_us)
         result.errors.emplace_back("valid_until_us must be later than timestamp_us");
     return result;
+}
+
+ValidationResult validate(const AttackCommand& command) {
+    ValidationResult result = validate_header(
+        command.header, ComponentId::command_and_control, ComponentId::effector_asset);
+    if (command.command_id == 0) result.errors.emplace_back("command_id must be non-zero");
+    if (!supported(command.action)) result.errors.emplace_back("unsupported attack action");
+    if ((command.action == AttackAction::arm || command.action == AttackAction::start) &&
+        command.target_id == 0)
+        result.errors.emplace_back("ARM and START require target_id");
+    if (command.action == AttackAction::start && command.duration_ms == 0)
+        result.errors.emplace_back("START requires non-zero duration_ms");
+    if (command.valid_until_us <= command.header.timestamp_us)
+        result.errors.emplace_back("valid_until_us must be later than timestamp_us");
+    return result;
+}
+
+ValidationResult validate(const EffectorStatus& status) {
+    ValidationResult result = validate_header(
+        status.header, ComponentId::effector_asset, ComponentId::command_and_control);
+    if (!supported(status.state)) result.errors.emplace_back("unsupported effector state");
+    if (!finite(status.current_pan_deg) || !finite(status.current_tilt_deg) ||
+        !finite(status.target_pan_deg) || !finite(status.target_tilt_deg))
+        result.errors.emplace_back("effector angles must be finite");
+    if (status.timestamp_us == 0)
+        result.errors.emplace_back("status timestamp_us must be non-zero");
+    return result;
+}
+
+ValidationResult validate(const CommandAck& acknowledgement) {
+    ValidationResult result =
+        validate_asset_message_header(acknowledgement.header, "CommandAck");
+    if (acknowledgement.command_id == 0)
+        result.errors.emplace_back("command_id must be non-zero");
+    if (!supported(acknowledgement.result))
+        result.errors.emplace_back("unsupported command result");
+    if (acknowledgement.timestamp_us == 0)
+        result.errors.emplace_back("ack timestamp_us must be non-zero");
+    return result;
+}
+
+ValidationResult validate(const Heartbeat& heartbeat) {
+    ValidationResult result = validate_asset_message_header(heartbeat.header, "Heartbeat");
+    if (!supported(heartbeat.state))
+        result.errors.emplace_back("unsupported asset operating state");
+    if (heartbeat.timestamp_us == 0)
+        result.errors.emplace_back("heartbeat timestamp_us must be non-zero");
+    return result;
+}
+
+ValidationResult validate(const ErrorReport& report) {
+    ValidationResult result = validate_asset_message_header(report.header, "ErrorReport");
+    if (report.error_code == 0) result.errors.emplace_back("error_code must be non-zero");
+    if (!supported(report.severity)) result.errors.emplace_back("unsupported error severity");
+    if (report.timestamp_us == 0)
+        result.errors.emplace_back("error timestamp_us must be non-zero");
+    return result;
+}
+
+ValidationResult validate(const Envelope& envelope) {
+    return std::visit(
+        [](const auto& payload) -> ValidationResult {
+            using Payload = std::decay_t<decltype(payload)>;
+            if constexpr (std::is_same_v<Payload, std::monostate>)
+                return ValidationResult{{"envelope payload must be set"}};
+            else
+                return validate(payload);
+        },
+        envelope.payload);
 }
 }  // namespace c2

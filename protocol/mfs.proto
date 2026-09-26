@@ -22,6 +22,64 @@ enum ObservationTurretCommandType {
   OBSERVATION_TURRET_COMMAND_TYPE_SCAN = 4;
 }
 
+enum ObservationState {
+  OBSERVATION_STATE_UNSPECIFIED = 0;
+  OBSERVATION_STATE_OFF = 1;
+  OBSERVATION_STATE_INITIALIZING = 2;
+  OBSERVATION_STATE_STANDBY = 3;
+  OBSERVATION_STATE_OPERATING = 4;
+  OBSERVATION_STATE_FAULT = 5;
+}
+
+enum EffectorState {
+  EFFECTOR_STATE_UNSPECIFIED = 0;
+  EFFECTOR_STATE_OFF = 1;
+  EFFECTOR_STATE_INITIALIZING = 2;
+  EFFECTOR_STATE_STANDBY = 3;
+  EFFECTOR_STATE_SLEWING = 4;
+  EFFECTOR_STATE_READY = 5;
+  EFFECTOR_STATE_ACTIVE = 6;
+  EFFECTOR_STATE_FAULT = 7;
+}
+
+enum AttackAction {
+  ATTACK_ACTION_UNSPECIFIED = 0;
+  ATTACK_ACTION_ARM = 1;
+  ATTACK_ACTION_START = 2;
+  ATTACK_ACTION_STOP = 3;
+  ATTACK_ACTION_EMERGENCY_STOP = 4;
+}
+
+enum CommandResult {
+  COMMAND_RESULT_UNSPECIFIED = 0;
+  COMMAND_RESULT_RECEIVED = 1;
+  COMMAND_RESULT_ACCEPTED = 2;
+  COMMAND_RESULT_IN_PROGRESS = 3;
+  COMMAND_RESULT_COMPLETED = 4;
+  COMMAND_RESULT_REJECTED = 5;
+  COMMAND_RESULT_FAILED = 6;
+}
+
+enum AssetOperatingState {
+  ASSET_OPERATING_STATE_UNSPECIFIED = 0;
+  ASSET_OPERATING_STATE_OFF = 1;
+  ASSET_OPERATING_STATE_INITIALIZING = 2;
+  ASSET_OPERATING_STATE_STANDBY = 3;
+  ASSET_OPERATING_STATE_OPERATING = 4;
+  ASSET_OPERATING_STATE_SLEWING = 5;
+  ASSET_OPERATING_STATE_READY = 6;
+  ASSET_OPERATING_STATE_ACTIVE = 7;
+  ASSET_OPERATING_STATE_FAULT = 8;
+}
+
+enum ErrorSeverity {
+  ERROR_SEVERITY_UNSPECIFIED = 0;
+  ERROR_SEVERITY_INFO = 1;
+  ERROR_SEVERITY_WARNING = 2;
+  ERROR_SEVERITY_ERROR = 3;
+  ERROR_SEVERITY_CRITICAL = 4;
+}
+
 message MessageHeader {
   uint32 protocol_version = 1;
   uint32 sequence = 2;
@@ -54,6 +112,19 @@ message TargetCoordinate {
   float confidence = 8;
 }
 
+// Scanning is derived from state == OPERATING and lidar_active. turret_active
+// only indicates whether a Pan/Tilt axis is moving at the status timestamp.
+message ObservationStatus {
+  MessageHeader header = 1;
+  ObservationState state = 2;
+  float current_pan_deg = 3;
+  float current_tilt_deg = 4;
+  bool lidar_active = 5;
+  bool turret_active = 6;
+  uint32 error_code = 7;
+  uint64 timestamp_us = 8;
+}
+
 // HOME returns to the reference position, STOP halts motion and search,
 // ABSOLUTE_ANGLE points without starting search, and SCAN points to the
 // requested center angle before starting the configured search pattern.
@@ -73,4 +144,66 @@ message EffectorTurretCommand {
   float target_pan_deg = 4;
   float target_tilt_deg = 5;
   uint64 valid_until_us = 6;
+}
+
+message AttackCommand {
+  MessageHeader header = 1;
+  uint32 command_id = 2;
+  uint32 target_id = 3;
+  AttackAction action = 4;
+  uint32 duration_ms = 5;
+  uint64 valid_until_us = 6;
+}
+
+message EffectorStatus {
+  MessageHeader header = 1;
+  EffectorState state = 2;
+  float current_pan_deg = 3;
+  float current_tilt_deg = 4;
+  float target_pan_deg = 5;
+  float target_tilt_deg = 6;
+  bool aligned = 7;
+  bool attack_armed = 8;
+  bool attack_active = 9;
+  uint32 error_code = 10;
+  uint64 timestamp_us = 11;
+}
+
+message CommandAck {
+  MessageHeader header = 1;
+  uint32 command_id = 2;
+  CommandResult result = 3;
+  uint32 error_code = 4;
+  uint64 timestamp_us = 5;
+}
+
+message Heartbeat {
+  MessageHeader header = 1;
+  AssetOperatingState state = 2;
+  uint64 uptime_ms = 3;
+  uint64 timestamp_us = 4;
+}
+
+message ErrorReport {
+  MessageHeader header = 1;
+  uint32 error_code = 2;
+  ErrorSeverity severity = 3;
+  uint32 related_command_id = 4;
+  uint64 timestamp_us = 5;
+  string detail = 6;
+}
+
+message Envelope {
+  oneof payload {
+    AssetPose asset_pose = 1;
+    TargetCoordinate target_coordinate = 2;
+    ObservationStatus observation_status = 3;
+    ObservationTurretCommand observation_turret_command = 4;
+    EffectorTurretCommand effector_turret_command = 5;
+    AttackCommand attack_command = 6;
+    EffectorStatus effector_status = 7;
+    CommandAck command_ack = 8;
+    Heartbeat heartbeat = 9;
+    ErrorReport error_report = 10;
+  }
 }

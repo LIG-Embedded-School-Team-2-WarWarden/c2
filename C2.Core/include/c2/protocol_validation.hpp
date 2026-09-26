@@ -22,8 +22,15 @@ struct ObservationTurretLimits {
     const MessageHeader& header, ComponentId expected_source, ComponentId expected_destination);
 [[nodiscard]] ValidationResult validate(const AssetPose& pose);
 [[nodiscard]] ValidationResult validate(const TargetCoordinate& target);
+[[nodiscard]] ValidationResult validate(const ObservationStatus& status);
 [[nodiscard]] ValidationResult validate(const ObservationTurretCommand& command);
 [[nodiscard]] ValidationResult validate(
     const ObservationTurretCommand& command, const ObservationTurretLimits& limits);
 [[nodiscard]] ValidationResult validate(const EffectorTurretCommand& command);
+[[nodiscard]] ValidationResult validate(const AttackCommand& command);
+[[nodiscard]] ValidationResult validate(const EffectorStatus& status);
+[[nodiscard]] ValidationResult validate(const CommandAck& acknowledgement);
+[[nodiscard]] ValidationResult validate(const Heartbeat& heartbeat);
+[[nodiscard]] ValidationResult validate(const ErrorReport& report);
+[[nodiscard]] ValidationResult validate(const Envelope& envelope);
 }  // namespace c2
