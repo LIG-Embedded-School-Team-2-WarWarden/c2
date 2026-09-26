@@ -14,6 +14,14 @@ enum class ComponentId : std::uint32_t {
 
 enum class CoordinateFrame : std::uint32_t { unspecified = 0, project_frame = 1 };
 
+enum class ObservationTurretCommandType : std::uint32_t {
+    unspecified = 0,
+    home = 1,
+    stop = 2,
+    absolute_angle = 3,
+    scan = 4,
+};
+
 struct MessageHeader {
     std::uint32_t protocol_version_value{protocol_version};
     std::uint32_t sequence{};
@@ -40,6 +48,15 @@ struct TargetCoordinate {
     float y_m{};
     float z_m{};
     float confidence{};
+};
+
+struct ObservationTurretCommand {
+    MessageHeader header;
+    std::uint32_t command_id{};
+    ObservationTurretCommandType command_type{ObservationTurretCommandType::unspecified};
+    float target_pan_deg{};
+    float target_tilt_deg{};
+    std::uint64_t valid_until_us{};
 };
 
 struct EffectorTurretCommand {
