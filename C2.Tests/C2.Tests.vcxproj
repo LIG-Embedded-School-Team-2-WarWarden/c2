@@ -109,6 +109,7 @@
   <ItemGroup>
     <ClCompile Include="attack_command_service_test.cpp" />
     <ClCompile Include="connection_monitor_test.cpp" />
+    <ClCompile Include="dummy_assets_test.cpp" />
     <ClCompile Include="effector_command_service_test.cpp" />
     <ClCompile Include="observation_command_service_test.cpp" />
     <ClCompile Include="protobuf_codec_test.cpp" />
