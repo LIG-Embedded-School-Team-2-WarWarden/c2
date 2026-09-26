@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 
 namespace {
 struct Options {
@@ -90,6 +91,18 @@ int main(int argc, char* argv[]) {
         targets.start();
         effector_status.start();
 
+        const auto started_at = std::chrono::steady_clock::now();
+        std::jthread heartbeat_worker([&](const std::stop_token stop) {
+            while (!stop.stop_requested()) {
+                const auto uptime_ms = static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started_at).count());
+                runtime.send_heartbeats(now_us(), uptime_ms);
+                for (int elapsed = 0; elapsed < 10 && !stop.stop_requested(); ++elapsed)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        });
+
         std::cout << "C2 server started. Commands: scan P T, point ID, arm ID, "
                      "start ID MS, stop, estop, quit\n";
         std::string line;
@@ -124,6 +137,8 @@ int main(int argc, char* argv[]) {
                 std::cout << "invalid command\n";
             }
         }
+        heartbeat_worker.request_stop();
+        heartbeat_worker.join();
         effector_status.stop();
         targets.stop();
         observation_status.stop();

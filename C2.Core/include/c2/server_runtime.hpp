@@ -57,6 +57,7 @@ public:
     [[nodiscard]] AttackDispatchResult attack(
         AttackAction action, std::uint32_t target_id,
         std::uint32_t duration_ms, std::uint64_t now_us);
+    void send_heartbeats(std::uint64_t now_us, std::uint64_t uptime_ms);
     [[nodiscard]] bool pose_resynchronization_required(ComponentId source) const;
     [[nodiscard]] std::optional<ObservationStatus> observation_status() const;
     [[nodiscard]] std::optional<EffectorStatus> effector_status() const;
@@ -83,5 +84,8 @@ private:
     std::mutex effector_identity_mutex_;
     std::uint32_t next_effector_command_id_;
     std::uint32_t next_effector_sequence_;
+    std::mutex heartbeat_mutex_;
+    std::uint32_t next_observation_heartbeat_sequence_{1};
+    std::uint32_t next_effector_heartbeat_sequence_{1};
 };
 }  // namespace c2

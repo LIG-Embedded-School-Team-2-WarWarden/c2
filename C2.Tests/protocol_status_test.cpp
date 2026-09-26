@@ -242,13 +242,24 @@ TEST(HeartbeatContractTest, AcceptsBothAssetsAndEveryOperatingState) {
     }
 }
 
+TEST(HeartbeatContractTest, AcceptsCommandAndControlToBothAssets) {
+    for (const auto destination : {c2::ComponentId::observation_asset,
+                                   c2::ComponentId::effector_asset}) {
+        c2::Heartbeat heartbeat{
+            {c2::protocol_version, 1, 10,
+             c2::ComponentId::command_and_control, destination},
+            c2::AssetOperatingState::operating, 100, 10};
+        EXPECT_TRUE(c2::validate(heartbeat).valid());
+    }
+}
+
 TEST(HeartbeatContractTest, RejectsInvalidSourceStateAndTimestamp) {
-    auto heartbeat = valid_heartbeat(c2::ComponentId::command_and_control);
-    EXPECT_TRUE(has_error(c2::validate(heartbeat), "Heartbeat source must be an asset"));
+    auto heartbeat = valid_heartbeat(c2::ComponentId::unspecified);
+    EXPECT_TRUE(has_error(c2::validate(heartbeat), "Heartbeat route is unsupported"));
 
     heartbeat = valid_heartbeat();
     heartbeat.state = c2::AssetOperatingState::unspecified;
-    EXPECT_TRUE(has_error(c2::validate(heartbeat), "unsupported asset operating state"));
+    EXPECT_TRUE(has_error(c2::validate(heartbeat), "unsupported operating state"));
 
     heartbeat = valid_heartbeat();
     heartbeat.timestamp_us = 0;

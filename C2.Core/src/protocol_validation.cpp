@@ -273,9 +273,23 @@ ValidationResult validate(const CommandAck& acknowledgement) {
 }
 
 ValidationResult validate(const Heartbeat& heartbeat) {
-    ValidationResult result = validate_asset_message_header(heartbeat.header, "Heartbeat");
+    ValidationResult result;
+    if (heartbeat.header.source_id == ComponentId::command_and_control &&
+        (heartbeat.header.destination_id == ComponentId::observation_asset ||
+         heartbeat.header.destination_id == ComponentId::effector_asset)) {
+        append(result, validate_header(
+                           heartbeat.header, ComponentId::command_and_control,
+                           heartbeat.header.destination_id));
+    } else if (heartbeat.header.source_id == ComponentId::observation_asset ||
+               heartbeat.header.source_id == ComponentId::effector_asset) {
+        append(result, validate_header(
+                           heartbeat.header, heartbeat.header.source_id,
+                           ComponentId::command_and_control));
+    } else {
+        result.errors.emplace_back("Heartbeat route is unsupported");
+    }
     if (!supported(heartbeat.state))
-        result.errors.emplace_back("unsupported asset operating state");
+        result.errors.emplace_back("unsupported operating state");
     if (heartbeat.timestamp_us == 0)
         result.errors.emplace_back("heartbeat timestamp_us must be non-zero");
     return result;
