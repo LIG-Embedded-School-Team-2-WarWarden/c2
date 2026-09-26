@@ -4,4 +4,5 @@
     <Platform Name="x86" />
   </Configurations>
   <Project Path="C2.Core/C2.Core.vcxproj" />
+  <Project Path="C2.Tests/C2.Tests.vcxproj" />
 </Solution>
