@@ -26,6 +26,7 @@ struct ServerRuntimeConfig {
     AttackCommandConfig attack_commands;
     Endpoint observation_endpoint;
     Endpoint effector_endpoint;
+    std::uint32_t emergency_stop_repetitions{3};
 };
 
 enum class InboundResult { accepted, invalid_packet, unsupported_message, rejected };
