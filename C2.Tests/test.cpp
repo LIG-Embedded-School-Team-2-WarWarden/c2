@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "c2/protocol_validation.hpp"
+#include "c2/pointing.hpp"
 
 #include <algorithm>
 #include <array>
@@ -210,5 +211,50 @@ TEST(EffectorTurretCommandContractTest, RejectsExpiryAtOrBeforeCommandTimestamp)
     command.valid_until_us = command.header.timestamp_us - 1;
     EXPECT_TRUE(has_error(
         c2::validate(command), "valid_until_us must be later than timestamp_us"));
+}
+
+TEST(EffectorPointingTest, CalculatesPanAndTiltFromProjectFrame) {
+    const c2::TargetCoordinate target{
+        header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
+        42, 999'000, c2::CoordinateFrame::project_frame, 10.0F, 10.0F, 10.0F, 0.9F};
+    const c2::AssetPose effector{
+        header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
+        c2::CoordinateFrame::project_frame, 0.0F, 0.0F, 0.0F, 0.0F};
+
+    const auto calculated = c2::calculate_effector_pointing(target, effector);
+    ASSERT_TRUE(std::holds_alternative<c2::PointingSolution>(calculated));
+    const auto& solution = std::get<c2::PointingSolution>(calculated);
+    EXPECT_NEAR(solution.pan_deg, 45.0F, 1.0e-4F);
+    EXPECT_NEAR(solution.tilt_deg, 35.26439F, 1.0e-4F);
+}
+
+TEST(EffectorPointingTest, AppliesEffectorInstallationPositionAndAzimuth) {
+    const c2::TargetCoordinate target{
+        header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
+        42, 999'000, c2::CoordinateFrame::project_frame, 10.0F, 10.0F, 0.0F, 0.9F};
+    const c2::AssetPose effector{
+        header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
+        c2::CoordinateFrame::project_frame, 10.0F, 0.0F, 0.0F, 90.0F};
+
+    const auto calculated = c2::calculate_effector_pointing(target, effector);
+    ASSERT_TRUE(std::holds_alternative<c2::PointingSolution>(calculated));
+    const auto& solution = std::get<c2::PointingSolution>(calculated);
+    EXPECT_NEAR(solution.relative_x_m, 10.0F, 1.0e-4F);
+    EXPECT_NEAR(solution.relative_y_m, 0.0F, 1.0e-4F);
+    EXPECT_NEAR(solution.pan_deg, 0.0F, 1.0e-4F);
+}
+
+TEST(EffectorPointingTest, RejectsCommandOutsideConfiguredLimits) {
+    const c2::TargetCoordinate target{
+        header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
+        42, 999'000, c2::CoordinateFrame::project_frame, 0.0F, 10.0F, 0.0F, 0.9F};
+    const c2::AssetPose effector{
+        header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
+        c2::CoordinateFrame::project_frame, 0.0F, 0.0F, 0.0F, 0.0F};
+
+    const auto calculated = c2::calculate_effector_pointing(
+        target, effector, c2::PointingLimits{-45.0F, 45.0F, -20.0F, 20.0F});
+    ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
+    EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::outside_turret_limits);
 }
 }  // namespace
