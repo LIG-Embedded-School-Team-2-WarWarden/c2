@@ -8,6 +8,24 @@ void append(ValidationResult& destination, ValidationResult source) {
     destination.errors.insert(destination.errors.end(), source.errors.begin(), source.errors.end());
 }
 bool finite(const float value) noexcept { return std::isfinite(value); }
+
+bool supported(const ObservationTurretCommandType type) noexcept {
+    switch (type) {
+        case ObservationTurretCommandType::home:
+        case ObservationTurretCommandType::stop:
+        case ObservationTurretCommandType::absolute_angle:
+        case ObservationTurretCommandType::scan:
+            return true;
+        case ObservationTurretCommandType::unspecified:
+        default:
+            return false;
+    }
+}
+
+bool uses_target_angles(const ObservationTurretCommandType type) noexcept {
+    return type == ObservationTurretCommandType::absolute_angle ||
+           type == ObservationTurretCommandType::scan;
+}
 }  // namespace
 
 ValidationResult validate_header(
@@ -50,6 +68,42 @@ ValidationResult validate(const TargetCoordinate& target) {
         result.errors.emplace_back("TargetCoordinate position must be finite");
     if (!finite(target.confidence) || target.confidence < 0.0F || target.confidence > 1.0F)
         result.errors.emplace_back("confidence must be in [0, 1]");
+    return result;
+}
+
+ValidationResult validate(const ObservationTurretCommand& command) {
+    ValidationResult result = validate_header(
+        command.header, ComponentId::command_and_control, ComponentId::observation_asset);
+    if (command.command_id == 0) result.errors.emplace_back("command_id must be non-zero");
+    if (!supported(command.command_type))
+        result.errors.emplace_back("command_type must be HOME, STOP, ABSOLUTE_ANGLE, or SCAN");
+    if (!finite(command.target_pan_deg) || !finite(command.target_tilt_deg))
+        result.errors.emplace_back("target angles must be finite");
+    if (command.valid_until_us <= command.header.timestamp_us)
+        result.errors.emplace_back("valid_until_us must be later than timestamp_us");
+    return result;
+}
+
+ValidationResult validate(
+    const ObservationTurretCommand& command, const ObservationTurretLimits& limits) {
+    ValidationResult result = validate(command);
+    const auto valid_limits = finite(limits.minimum_pan_deg) && finite(limits.maximum_pan_deg) &&
+                              finite(limits.minimum_tilt_deg) &&
+                              finite(limits.maximum_tilt_deg) &&
+                              limits.minimum_pan_deg <= limits.maximum_pan_deg &&
+                              limits.minimum_tilt_deg <= limits.maximum_tilt_deg;
+    if (!valid_limits) {
+        result.errors.emplace_back("observation turret limits are invalid");
+        return result;
+    }
+
+    if (uses_target_angles(command.command_type) && finite(command.target_pan_deg) &&
+        finite(command.target_tilt_deg) &&
+        (command.target_pan_deg < limits.minimum_pan_deg ||
+         command.target_pan_deg > limits.maximum_pan_deg ||
+         command.target_tilt_deg < limits.minimum_tilt_deg ||
+         command.target_tilt_deg > limits.maximum_tilt_deg))
+        result.errors.emplace_back("target angles exceed observation turret limits");
     return result;
 }
 
