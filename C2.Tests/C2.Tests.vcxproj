@@ -113,6 +113,7 @@
     <ClCompile Include="observation_command_service_test.cpp" />
     <ClCompile Include="protobuf_codec_test.cpp" />
     <ClCompile Include="protocol_status_test.cpp" />
+    <ClCompile Include="server_runtime_test.cpp" />
     <ClCompile Include="state_store_test.cpp" />
     <ClCompile Include="test.cpp" />
     <ClCompile Include="udp_transport_test.cpp" />
