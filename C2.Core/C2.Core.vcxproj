@@ -143,9 +143,11 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\pointing.cpp" />
     <ClCompile Include="src\protocol_validation.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\c2\pointing.hpp" />
     <ClInclude Include="include\c2\protocol.hpp" />
     <ClInclude Include="include\c2\protocol_validation.hpp" />
   </ItemGroup>
