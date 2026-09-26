@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <limits>
 
 namespace c2 {
 ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
@@ -15,7 +16,9 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
       connections_(config_.connections),
       observation_commands_(config_.observation_commands),
       effector_commands_(state_, config_.effector_commands),
-      attack_commands_(config_.attack_commands) {
+      attack_commands_(config_.attack_commands),
+      next_effector_command_id_(config_.effector_commands.first_command_id),
+      next_effector_sequence_(config_.effector_commands.first_sequence) {
     if (!sender_) throw std::invalid_argument("datagram sender must be set");
 }
 
@@ -91,6 +94,7 @@ EffectorDispatchResult ServerRuntime::point_effector(
     if (!std::holds_alternative<EffectorTurretCommand>(result))
         return DispatchError::command_rejected;
     auto command = std::get<EffectorTurretCommand>(result);
+    assign_effector_identity(command);
     if (!attack_commands_.record_pointing_command(command))
         return DispatchError::command_rejected;
     dispatch(command, config_.effector_endpoint);
@@ -108,6 +112,7 @@ AttackDispatchResult ServerRuntime::attack(
     if (!std::holds_alternative<AttackCommand>(result))
         return DispatchError::command_rejected;
     auto command = std::get<AttackCommand>(result);
+    assign_effector_identity(command);
     dispatch(command, config_.effector_endpoint);
     return command;
 }
@@ -136,5 +141,27 @@ template <typename Message>
 void ServerRuntime::dispatch(const Message& message, const Endpoint& endpoint) {
     const auto encoded = protobuf::encode(Envelope{message});
     sender_(encoded, endpoint);
+}
+
+namespace {
+std::uint32_t next_non_zero(std::uint32_t value) noexcept {
+    return value == std::numeric_limits<std::uint32_t>::max() ? 1U : value + 1U;
+}
+}
+
+void ServerRuntime::assign_effector_identity(EffectorTurretCommand& command) {
+    std::lock_guard lock(effector_identity_mutex_);
+    command.command_id = next_effector_command_id_;
+    command.header.sequence = next_effector_sequence_;
+    next_effector_command_id_ = next_non_zero(next_effector_command_id_);
+    next_effector_sequence_ = next_non_zero(next_effector_sequence_);
+}
+
+void ServerRuntime::assign_effector_identity(AttackCommand& command) {
+    std::lock_guard lock(effector_identity_mutex_);
+    command.command_id = next_effector_command_id_;
+    command.header.sequence = next_effector_sequence_;
+    next_effector_command_id_ = next_non_zero(next_effector_command_id_);
+    next_effector_sequence_ = next_non_zero(next_effector_sequence_);
 }
 }  // namespace c2

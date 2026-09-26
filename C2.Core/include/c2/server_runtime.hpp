@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <variant>
@@ -68,6 +69,8 @@ private:
         ComponentId source, std::uint64_t now_us);
     template <typename Message>
     void dispatch(const Message& message, const Endpoint& endpoint);
+    void assign_effector_identity(EffectorTurretCommand& command);
+    void assign_effector_identity(AttackCommand& command);
 
     ServerRuntimeConfig config_;
     DatagramSender sender_;
@@ -77,5 +80,8 @@ private:
     ObservationCommandService observation_commands_;
     EffectorCommandService effector_commands_;
     AttackCommandService attack_commands_;
+    std::mutex effector_identity_mutex_;
+    std::uint32_t next_effector_command_id_;
+    std::uint32_t next_effector_sequence_;
 };
 }  // namespace c2
