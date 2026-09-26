@@ -42,6 +42,16 @@ c2::EffectorTurretCommand valid_command() {
             1'000'001};
 }
 
+c2::ObservationTurretCommand valid_observation_command(
+    const c2::ObservationTurretCommandType type = c2::ObservationTurretCommandType::scan) {
+    return {header(c2::ComponentId::command_and_control, c2::ComponentId::observation_asset),
+            20,
+            type,
+            30.0F,
+            -5.0F,
+            1'000'001};
+}
+
 bool has_error(const c2::ValidationResult& result, const std::string_view expected) {
     return std::find(result.errors.begin(), result.errors.end(), expected) != result.errors.end();
 }
@@ -210,5 +220,112 @@ TEST(EffectorTurretCommandContractTest, RejectsExpiryAtOrBeforeCommandTimestamp)
     command.valid_until_us = command.header.timestamp_us - 1;
     EXPECT_TRUE(has_error(
         c2::validate(command), "valid_until_us must be later than timestamp_us"));
+}
+
+TEST(ObservationTurretCommandContractTest, AcceptsEverySupportedCommandType) {
+    for (const auto type : {c2::ObservationTurretCommandType::home,
+                            c2::ObservationTurretCommandType::stop,
+                            c2::ObservationTurretCommandType::absolute_angle,
+                            c2::ObservationTurretCommandType::scan}) {
+        SCOPED_TRACE(static_cast<std::uint32_t>(type));
+        EXPECT_TRUE(c2::validate(valid_observation_command(type)).valid());
+    }
+}
+
+TEST(ObservationTurretCommandContractTest, RejectsUnspecifiedCommandType) {
+    for (const auto type : {c2::ObservationTurretCommandType::unspecified,
+                            static_cast<c2::ObservationTurretCommandType>(99)}) {
+        const auto result = c2::validate(valid_observation_command(type));
+        EXPECT_TRUE(
+            has_error(result, "command_type must be HOME, STOP, ABSOLUTE_ANGLE, or SCAN"));
+    }
+}
+
+TEST(ObservationTurretCommandContractTest, RejectsInvalidRouteIdentityAndExpiry) {
+    auto command = valid_observation_command();
+    command.header.destination_id = c2::ComponentId::effector_asset;
+    EXPECT_TRUE(has_error(c2::validate(command), "unexpected destination_id"));
+
+    command = valid_observation_command();
+    command.command_id = 0;
+    EXPECT_TRUE(has_error(c2::validate(command), "command_id must be non-zero"));
+
+    command = valid_observation_command();
+    command.valid_until_us = command.header.timestamp_us;
+    EXPECT_TRUE(has_error(
+        c2::validate(command), "valid_until_us must be later than timestamp_us"));
+
+    command.valid_until_us = command.header.timestamp_us - 1;
+    EXPECT_TRUE(has_error(
+        c2::validate(command), "valid_until_us must be later than timestamp_us"));
+}
+
+TEST(ObservationTurretCommandContractTest, RejectsNonFiniteTargetAngles) {
+    auto command = valid_observation_command();
+    command.target_pan_deg = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_TRUE(has_error(c2::validate(command), "target angles must be finite"));
+
+    command = valid_observation_command(c2::ObservationTurretCommandType::absolute_angle);
+    command.target_tilt_deg = std::numeric_limits<float>::infinity();
+    EXPECT_TRUE(has_error(c2::validate(command), "target angles must be finite"));
+}
+
+TEST(ObservationTurretCommandContractTest, AcceptsTargetAnglesOnConfiguredLimits) {
+    const c2::ObservationTurretLimits limits{-90.0F, 90.0F, -30.0F, 45.0F};
+    auto command = valid_observation_command();
+    command.target_pan_deg = limits.minimum_pan_deg;
+    command.target_tilt_deg = limits.minimum_tilt_deg;
+    EXPECT_TRUE(c2::validate(command, limits).valid());
+
+    command.target_pan_deg = limits.maximum_pan_deg;
+    command.target_tilt_deg = limits.maximum_tilt_deg;
+    EXPECT_TRUE(c2::validate(command, limits).valid());
+}
+
+TEST(ObservationTurretCommandContractTest, RejectsEachTargetAngleOutsideConfiguredLimits) {
+    const c2::ObservationTurretLimits limits{-90.0F, 90.0F, -30.0F, 45.0F};
+    struct Case {
+        float pan;
+        float tilt;
+    };
+    constexpr std::array cases{
+        Case{-90.001F, 0.0F},
+        Case{90.001F, 0.0F},
+        Case{0.0F, -30.001F},
+        Case{0.0F, 45.001F},
+    };
+
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.pan);
+        SCOPED_TRACE(test_case.tilt);
+        auto command = valid_observation_command();
+        command.target_pan_deg = test_case.pan;
+        command.target_tilt_deg = test_case.tilt;
+        EXPECT_TRUE(has_error(
+            c2::validate(command, limits), "target angles exceed observation turret limits"));
+    }
+}
+
+TEST(ObservationTurretCommandContractTest, HomeAndStopIgnoreTargetAngleLimits) {
+    const c2::ObservationTurretLimits limits{-90.0F, 90.0F, -30.0F, 45.0F};
+    for (const auto type : {c2::ObservationTurretCommandType::home,
+                            c2::ObservationTurretCommandType::stop}) {
+        auto command = valid_observation_command(type);
+        command.target_pan_deg = 999.0F;
+        command.target_tilt_deg = -999.0F;
+        EXPECT_TRUE(c2::validate(command, limits).valid());
+    }
+}
+
+TEST(ObservationTurretCommandContractTest, RejectsInvalidLimitConfiguration) {
+    auto result = c2::validate(
+        valid_observation_command(), c2::ObservationTurretLimits{90.0F, -90.0F, 45.0F, -30.0F});
+    EXPECT_TRUE(has_error(result, "observation turret limits are invalid"));
+
+    result = c2::validate(
+        valid_observation_command(),
+        c2::ObservationTurretLimits{
+            -90.0F, 90.0F, -30.0F, std::numeric_limits<float>::quiet_NaN()});
+    EXPECT_TRUE(has_error(result, "observation turret limits are invalid"));
 }
 }  // namespace

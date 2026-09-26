@@ -14,6 +14,14 @@ enum CoordinateFrame {
   COORDINATE_FRAME_PROJECT = 1;
 }
 
+enum ObservationTurretCommandType {
+  OBSERVATION_TURRET_COMMAND_TYPE_UNSPECIFIED = 0;
+  OBSERVATION_TURRET_COMMAND_TYPE_HOME = 1;
+  OBSERVATION_TURRET_COMMAND_TYPE_STOP = 2;
+  OBSERVATION_TURRET_COMMAND_TYPE_ABSOLUTE_ANGLE = 3;
+  OBSERVATION_TURRET_COMMAND_TYPE_SCAN = 4;
+}
+
 message MessageHeader {
   uint32 protocol_version = 1;
   uint32 sequence = 2;
@@ -44,6 +52,18 @@ message TargetCoordinate {
   float y_m = 6;
   float z_m = 7;
   float confidence = 8;
+}
+
+// HOME returns to the reference position, STOP halts motion and search,
+// ABSOLUTE_ANGLE points without starting search, and SCAN points to the
+// requested center angle before starting the configured search pattern.
+message ObservationTurretCommand {
+  MessageHeader header = 1;
+  uint32 command_id = 2;
+  ObservationTurretCommandType command_type = 3;
+  float target_pan_deg = 4;
+  float target_tilt_deg = 5;
+  uint64 valid_until_us = 6;
 }
 
 message EffectorTurretCommand {

@@ -11,9 +11,19 @@ struct ValidationResult {
     [[nodiscard]] bool valid() const noexcept { return errors.empty(); }
 };
 
+struct ObservationTurretLimits {
+    float minimum_pan_deg{};
+    float maximum_pan_deg{};
+    float minimum_tilt_deg{};
+    float maximum_tilt_deg{};
+};
+
 [[nodiscard]] ValidationResult validate_header(
     const MessageHeader& header, ComponentId expected_source, ComponentId expected_destination);
 [[nodiscard]] ValidationResult validate(const AssetPose& pose);
 [[nodiscard]] ValidationResult validate(const TargetCoordinate& target);
+[[nodiscard]] ValidationResult validate(const ObservationTurretCommand& command);
+[[nodiscard]] ValidationResult validate(
+    const ObservationTurretCommand& command, const ObservationTurretLimits& limits);
 [[nodiscard]] ValidationResult validate(const EffectorTurretCommand& command);
 }  // namespace c2
