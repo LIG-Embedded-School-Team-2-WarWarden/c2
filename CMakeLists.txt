@@ -27,6 +27,12 @@ target_link_libraries(c2_core PUBLIC ws2_32)
 add_executable(c2_server C2.Server/main.cpp)
 target_link_libraries(c2_server PRIVATE c2_core)
 
+add_executable(dummy_observation Dummy.Observation/main.cpp)
+target_link_libraries(dummy_observation PRIVATE c2_core)
+
+add_executable(dummy_effector Dummy.Effector/main.cpp)
+target_link_libraries(dummy_effector PRIVATE c2_core)
+
 include(FetchContent)
 FetchContent_Declare(
     googletest

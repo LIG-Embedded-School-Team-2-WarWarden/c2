@@ -6,4 +6,6 @@
   <Project Path="C2.Core/C2.Core.vcxproj" />
   <Project Path="C2.Server/C2.Server.vcxproj" />
   <Project Path="C2.Tests/C2.Tests.vcxproj" />
+  <Project Path="Dummy.Observation/Dummy.Observation.vcxproj" />
+  <Project Path="Dummy.Effector/Dummy.Effector.vcxproj" />
 </Solution>
