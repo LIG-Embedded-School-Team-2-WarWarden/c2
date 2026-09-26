@@ -26,6 +26,8 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
       next_effector_command_id_(config_.effector_commands.first_command_id),
       next_effector_sequence_(config_.effector_commands.first_sequence) {
     if (!sender_) throw std::invalid_argument("datagram sender must be set");
+    if (config_.emergency_stop_repetitions == 0)
+        throw std::invalid_argument("emergency stop repetitions must be non-zero");
 }
 
 InboundResult ServerRuntime::ingest(
@@ -119,7 +121,11 @@ AttackDispatchResult ServerRuntime::attack(
         return DispatchError::command_rejected;
     auto command = std::get<AttackCommand>(result);
     assign_effector_identity(command);
-    dispatch(command, config_.effector_endpoint);
+    const auto repetitions = action == AttackAction::emergency_stop
+                                 ? config_.emergency_stop_repetitions
+                                 : 1U;
+    for (std::uint32_t attempt = 0; attempt < repetitions; ++attempt)
+        dispatch(command, config_.effector_endpoint);
     return command;
 }
 

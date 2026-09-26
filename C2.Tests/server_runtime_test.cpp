@@ -111,11 +111,17 @@ TEST(ServerRuntimeTest, EnforcesConnectionForAttackButAlwaysDispatchesEmergencyS
               c2::DispatchError::connection_unavailable);
     const auto emergency = server.attack(c2::AttackAction::emergency_stop, 0, 0, 100);
     ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(emergency));
-    ASSERT_EQ(sent.size(), 1U);
-    const auto decoded = c2::protobuf::decode(sent.back());
-    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
-    EXPECT_EQ(std::get<c2::AttackCommand>(std::get<c2::Envelope>(decoded).payload).action,
-              c2::AttackAction::emergency_stop);
+    ASSERT_EQ(sent.size(), 3U);
+    std::uint32_t command_id{};
+    for (const auto& packet : sent) {
+        const auto decoded = c2::protobuf::decode(packet);
+        ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+        const auto& command = std::get<c2::AttackCommand>(
+            std::get<c2::Envelope>(decoded).payload);
+        EXPECT_EQ(command.action, c2::AttackAction::emergency_stop);
+        if (command_id == 0) command_id = command.command_id;
+        EXPECT_EQ(command.command_id, command_id);
+    }
 }
 
 TEST(ServerRuntimeTest, UsesOneIdentitySequenceForAllEffectorCommands) {
