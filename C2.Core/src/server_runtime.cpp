@@ -11,6 +11,7 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
     : config_(std::move(config)),
       sender_(std::move(sender)),
       state_(config_.state),
+      telemetry_(),
       connections_(config_.connections),
       observation_commands_(config_.observation_commands),
       effector_commands_(state_, config_.effector_commands),
@@ -49,16 +50,18 @@ InboundResult ServerRuntime::ingest(
                            ? InboundResult::accepted
                            : InboundResult::rejected;
             } else if constexpr (std::is_same_v<T, EffectorStatus>) {
-                const auto result = attack_commands_.update_status(message);
-                return result == AttackStatusUpdateResult::stored ||
-                               result == AttackStatusUpdateResult::duplicate
+                const auto telemetry_result = telemetry_.update(message);
+                const auto safety_result = attack_commands_.update_status(message);
+                return (telemetry_result == TelemetryUpdateResult::stored || telemetry_result == TelemetryUpdateResult::duplicate) &&
+                               (safety_result == AttackStatusUpdateResult::stored || safety_result == AttackStatusUpdateResult::duplicate)
                            ? InboundResult::accepted
                            : InboundResult::rejected;
-            } else if constexpr (
-                std::is_same_v<T, ObservationStatus> ||
-                std::is_same_v<T, CommandAck> ||
-                std::is_same_v<T, ErrorReport>) {
-                return InboundResult::accepted;
+            } else if constexpr (std::is_same_v<T, ObservationStatus> ||
+                                 std::is_same_v<T, CommandAck> ||
+                                 std::is_same_v<T, ErrorReport>) {
+                const auto result = telemetry_.update(message);
+                return result == TelemetryUpdateResult::stored || result == TelemetryUpdateResult::duplicate
+                           ? InboundResult::accepted : InboundResult::rejected;
             } else {
                 return InboundResult::unsupported_message;
             }
@@ -112,6 +115,13 @@ AttackDispatchResult ServerRuntime::attack(
 bool ServerRuntime::pose_resynchronization_required(const ComponentId source) const {
     return connections_.pose_resynchronization_required(source);
 }
+
+std::optional<ObservationStatus> ServerRuntime::observation_status() const { return telemetry_.observation_status(); }
+std::optional<EffectorStatus> ServerRuntime::effector_status() const { return telemetry_.effector_status(); }
+std::optional<CommandAck> ServerRuntime::acknowledgement(ComponentId source, std::uint32_t command_id) const {
+    return telemetry_.acknowledgement(source, command_id);
+}
+std::vector<ErrorReport> ServerRuntime::errors() const { return telemetry_.errors(); }
 
 std::optional<DispatchError> ServerRuntime::connection_error(
     const ComponentId source, const std::uint64_t now_us) {
