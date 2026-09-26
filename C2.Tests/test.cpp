@@ -313,9 +313,27 @@ TEST(EffectorPointingTest, RejectsPanOutsideConfiguredLimits) {
     EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::outside_turret_limits);
 }
 
+TEST(EffectorPointingTest, RejectsPanBelowConfiguredLimits) {
+    const auto calculated = c2::calculate_effector_pointing(
+        target_at(0.0F, -10.0F, 0.0F),
+        effector_at(0.0F, 0.0F, 0.0F),
+        c2::PointingLimits{-45.0F, 45.0F, -20.0F, 20.0F});
+    ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
+    EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::outside_turret_limits);
+}
+
 TEST(EffectorPointingTest, RejectsTiltOutsideConfiguredLimits) {
     const auto calculated = c2::calculate_effector_pointing(
         target_at(10.0F, 0.0F, 10.0F),
+        effector_at(0.0F, 0.0F, 0.0F),
+        c2::PointingLimits{-45.0F, 45.0F, -20.0F, 20.0F});
+    ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
+    EXPECT_EQ(std::get<c2::PointingError>(calculated), c2::PointingError::outside_turret_limits);
+}
+
+TEST(EffectorPointingTest, RejectsTiltBelowConfiguredLimits) {
+    const auto calculated = c2::calculate_effector_pointing(
+        target_at(10.0F, 0.0F, -10.0F),
         effector_at(0.0F, 0.0F, 0.0F),
         c2::PointingLimits{-45.0F, 45.0F, -20.0F, 20.0F});
     ASSERT_TRUE(std::holds_alternative<c2::PointingError>(calculated));
