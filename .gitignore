@@ -2,6 +2,7 @@
 .vs/
 
 # Build results
+build/
 Debug/
 Release/
 x64/
