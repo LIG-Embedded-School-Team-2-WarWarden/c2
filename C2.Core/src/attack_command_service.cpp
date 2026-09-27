@@ -60,7 +60,7 @@ bool AttackCommandService::record_pointing_command(
 }
 
 AttackCommandResult AttackCommandService::create(
-    const AttackAction action, std::uint32_t target_id,
+    const AttackAction action, std::uint64_t target_id,
     std::uint32_t duration_ms, const std::uint64_t now_us) {
     if (!supported(action)) return AttackCommandError::unsupported_action;
     if (now_us == 0) return AttackCommandError::invalid_time;

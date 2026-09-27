@@ -134,3 +134,13 @@
   heartbeat timeout·상태 노후화·고장 등으로 부적합해진 경우 다른 자산을 선택한다.
   후보 snapshot 구성은 공통 함수로 분리했다.
 - 검증: Release 전체 빌드 성공, 전체 시험 169/169 통과.
+
+## Cycle 12 — 타격 명령의 64비트 전역 track 식별자
+
+- Red: 32비트 범위를 넘는 전역 `track_id`를 POINT와 ATTACK 명령으로 codec
+  round-trip했을 때 값이 6으로 잘리는 테스트 실패를 먼저 확인했다.
+- Green: 두 명령의 `target_id`를 C++ 모델과 Protobuf 계약에서 `uint64`로 통일하고
+  decoder의 32비트 축소 변환을 제거했다.
+- Refactor: 기존 detection ID 기반 호환 서비스는 32비트 범위를 명시적으로 검사해
+  조용한 truncation 대신 `target_unavailable`을 반환하도록 했다.
+- 검증: Release 전체 빌드 성공, 전체 시험 170/170 통과.

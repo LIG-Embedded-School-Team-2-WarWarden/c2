@@ -38,7 +38,7 @@ public:
     [[nodiscard]] AttackStatusUpdateResult update_status(const EffectorStatus& status);
     [[nodiscard]] bool record_pointing_command(const EffectorTurretCommand& command);
     [[nodiscard]] AttackCommandResult create(
-        AttackAction action, std::uint32_t target_id,
+        AttackAction action, std::uint64_t target_id,
         std::uint32_t duration_ms, std::uint64_t now_us);
 
 private:

@@ -87,7 +87,7 @@ private:
     AssetPose pose_;
     ObservationTurretLimits limits_;
     EffectorStatus status_;
-    std::uint32_t current_target_id_{};
+    std::uint64_t current_target_id_{};
     std::uint64_t attack_end_us_{};
     std::uint32_t sequence_{1};
     std::unordered_map<std::uint32_t, CommandAck> results_;

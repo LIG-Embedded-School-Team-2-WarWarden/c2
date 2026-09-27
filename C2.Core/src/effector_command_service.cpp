@@ -53,12 +53,14 @@ EffectorCommandService::EffectorCommandService(
 }
 
 EffectorCommandResult EffectorCommandService::create_for_target(
-    const std::uint32_t target_id, const std::uint64_t now_us) {
+    const std::uint64_t target_id, const std::uint64_t now_us) {
     if (now_us == 0) return EffectorCommandError::invalid_time;
+    if (target_id > std::numeric_limits<std::uint32_t>::max())
+        return EffectorCommandError::target_unavailable;
     if (now_us > std::numeric_limits<std::uint64_t>::max() - config_.command_validity_us)
         return EffectorCommandError::deadline_overflow;
 
-    const auto target = state_.target(target_id, now_us);
+    const auto target = state_.target(static_cast<std::uint32_t>(target_id), now_us);
     if (!target) return EffectorCommandError::target_unavailable;
     const auto effector_pose = state_.asset_pose(ComponentId::effector_asset);
     if (!effector_pose) return EffectorCommandError::effector_pose_unavailable;

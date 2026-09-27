@@ -35,7 +35,7 @@ public:
     EffectorCommandService(StateStore& state, EffectorCommandConfig config);
 
     [[nodiscard]] EffectorCommandResult create_for_target(
-        std::uint32_t target_id, std::uint64_t now_us);
+        std::uint64_t target_id, std::uint64_t now_us);
 
 private:
     StateStore& state_;

@@ -171,6 +171,30 @@ TEST(ProtobufCodecTest, RoundTripsNonDefaultFloatsBooleansStringsAndMultibyteVar
         report.detail);
 }
 
+TEST(ProtobufCodecTest, PreservesGlobalTrackIdBeyondThirtyTwoBitsInEffectorCommands) {
+    constexpr std::uint64_t track_id =
+        static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()) + 7;
+    c2::EffectorTurretCommand point{
+        header(c2::ComponentId::command_and_control, c2::ComponentId::effector_asset),
+        1, track_id, 10, 5, 2};
+    c2::AttackCommand attack{
+        header(c2::ComponentId::command_and_control, c2::ComponentId::effector_asset),
+        2, track_id, c2::AttackAction::arm, 0, 2};
+
+    const auto decoded_point = c2::protobuf::decode(
+        c2::protobuf::encode(c2::Envelope{point}));
+    const auto decoded_attack = c2::protobuf::decode(
+        c2::protobuf::encode(c2::Envelope{attack}));
+    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded_point));
+    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded_attack));
+    EXPECT_EQ(std::get<c2::EffectorTurretCommand>(
+                  std::get<c2::Envelope>(decoded_point).payload).target_id,
+              track_id);
+    EXPECT_EQ(std::get<c2::AttackCommand>(
+                  std::get<c2::Envelope>(decoded_attack).payload).target_id,
+              track_id);
+}
+
 TEST(ProtobufCodecTest, SkipsUnknownFieldsAndRejectsWrongWireTypeOnKnownField) {
     auto with_unknown = golden_packets()[8].second;
     const auto unknown_field = bytes("7A01FF");

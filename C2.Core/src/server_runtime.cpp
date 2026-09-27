@@ -236,7 +236,7 @@ ObservationDispatchResult ServerRuntime::command_observation(
 }
 
 EffectorDispatchResult ServerRuntime::point_effector(
-    const std::uint32_t target_id, const std::uint64_t now_us) {
+    const std::uint64_t target_id, const std::uint64_t now_us) {
     if (const auto error = connection_error(ComponentId::effector_asset, now_us))
         return *error;
     const auto result = effector_commands_.create_for_target(target_id, now_us);
@@ -252,7 +252,7 @@ EffectorDispatchResult ServerRuntime::point_effector(
 }
 
 AttackDispatchResult ServerRuntime::attack(
-    const AttackAction action, const std::uint32_t target_id,
+    const AttackAction action, const std::uint64_t target_id,
     const std::uint32_t duration_ms, const std::uint64_t now_us) {
     if (action != AttackAction::stop && action != AttackAction::emergency_stop) {
         if (const auto error = connection_error(ComponentId::effector_asset, now_us))
