@@ -16,6 +16,7 @@
 #include <span>
 #include <variant>
 #include <vector>
+#include <unordered_map>
 
 namespace c2 {
 struct ServerRuntimeConfig {
@@ -27,6 +28,13 @@ struct ServerRuntimeConfig {
     Endpoint observation_endpoint;
     Endpoint effector_endpoint;
     std::uint32_t emergency_stop_repetitions{3};
+    std::uint64_t command_ack_timeout_us{200'000};
+    std::uint32_t command_max_attempts{3};
+};
+
+struct CommandRetryResult {
+    std::size_t resent{};
+    std::size_t exhausted{};
 };
 
 enum class InboundResult { accepted, invalid_packet, unsupported_message, rejected };
@@ -59,6 +67,8 @@ public:
         AttackAction action, std::uint32_t target_id,
         std::uint32_t duration_ms, std::uint64_t now_us);
     void send_heartbeats(std::uint64_t now_us, std::uint64_t uptime_ms);
+    [[nodiscard]] CommandRetryResult retry_unacknowledged(std::uint64_t now_us);
+    [[nodiscard]] std::size_t pending_command_count() const;
     [[nodiscard]] bool pose_resynchronization_required(ComponentId source) const;
     [[nodiscard]] ConnectionState connection_state(
         ComponentId source, std::uint64_t now_us);
@@ -74,6 +84,11 @@ private:
         ComponentId source, std::uint64_t now_us);
     template <typename Message>
     void dispatch(const Message& message, const Endpoint& endpoint);
+    template <typename Message>
+    void dispatch_tracked(
+        const Message& message, const Endpoint& endpoint,
+        ComponentId acknowledgement_source, std::uint64_t now_us);
+    void acknowledge_delivery(const CommandAck& acknowledgement);
     void assign_effector_identity(EffectorTurretCommand& command);
     void assign_effector_identity(AttackCommand& command);
 
@@ -91,5 +106,14 @@ private:
     std::mutex heartbeat_mutex_;
     std::uint32_t next_observation_heartbeat_sequence_{1};
     std::uint32_t next_effector_heartbeat_sequence_{1};
+    struct PendingCommand {
+        std::vector<std::byte> datagram;
+        Endpoint endpoint;
+        std::uint64_t last_sent_us{};
+        std::uint32_t attempts{};
+    };
+    static std::uint64_t pending_key(ComponentId source, std::uint32_t command_id) noexcept;
+    mutable std::mutex pending_mutex_;
+    std::unordered_map<std::uint64_t, PendingCommand> pending_commands_;
 };
 }  // namespace c2

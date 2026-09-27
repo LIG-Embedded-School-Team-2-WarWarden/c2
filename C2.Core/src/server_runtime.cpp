@@ -28,6 +28,8 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
     if (!sender_) throw std::invalid_argument("datagram sender must be set");
     if (config_.emergency_stop_repetitions == 0)
         throw std::invalid_argument("emergency stop repetitions must be non-zero");
+    if (config_.command_ack_timeout_us == 0 || config_.command_max_attempts == 0)
+        throw std::invalid_argument("command acknowledgement retry configuration is invalid");
 }
 
 InboundResult ServerRuntime::ingest(
@@ -67,12 +69,21 @@ InboundResult ServerRuntime::ingest(
                                (safety_result == AttackStatusUpdateResult::stored || safety_result == AttackStatusUpdateResult::duplicate)
                            ? InboundResult::accepted
                            : InboundResult::rejected;
+            } else if constexpr (std::is_same_v<T, CommandAck>) {
+                const auto result = telemetry_.update(message);
+                if (result == TelemetryUpdateResult::stored ||
+                    result == TelemetryUpdateResult::duplicate) {
+                    acknowledge_delivery(message);
+                    return InboundResult::accepted;
+                }
+                return InboundResult::rejected;
             } else if constexpr (std::is_same_v<T, ObservationStatus> ||
-                                 std::is_same_v<T, CommandAck> ||
                                  std::is_same_v<T, ErrorReport>) {
                 const auto result = telemetry_.update(message);
-                return result == TelemetryUpdateResult::stored || result == TelemetryUpdateResult::duplicate
-                           ? InboundResult::accepted : InboundResult::rejected;
+                return result == TelemetryUpdateResult::stored ||
+                               result == TelemetryUpdateResult::duplicate
+                           ? InboundResult::accepted
+                           : InboundResult::rejected;
             } else {
                 return InboundResult::unsupported_message;
             }
@@ -87,7 +98,8 @@ ObservationDispatchResult ServerRuntime::command_observation(
         return *error;
     try {
         auto command = observation_commands_.create(type, pan_deg, tilt_deg, now_us);
-        dispatch(command, config_.observation_endpoint);
+        dispatch_tracked(command, config_.observation_endpoint,
+                         ComponentId::observation_asset, now_us);
         return command;
     } catch (const std::exception&) {
         return DispatchError::command_rejected;
@@ -105,7 +117,8 @@ EffectorDispatchResult ServerRuntime::point_effector(
     assign_effector_identity(command);
     if (!attack_commands_.record_pointing_command(command))
         return DispatchError::command_rejected;
-    dispatch(command, config_.effector_endpoint);
+    dispatch_tracked(command, config_.effector_endpoint,
+                     ComponentId::effector_asset, now_us);
     return command;
 }
 
@@ -124,9 +137,48 @@ AttackDispatchResult ServerRuntime::attack(
     const auto repetitions = action == AttackAction::emergency_stop
                                  ? config_.emergency_stop_repetitions
                                  : 1U;
-    for (std::uint32_t attempt = 0; attempt < repetitions; ++attempt)
-        dispatch(command, config_.effector_endpoint);
+    if (action == AttackAction::emergency_stop) {
+        for (std::uint32_t attempt = 0; attempt < repetitions; ++attempt)
+            dispatch(command, config_.effector_endpoint);
+    } else {
+        dispatch_tracked(command, config_.effector_endpoint,
+                         ComponentId::effector_asset, now_us);
+    }
     return command;
+}
+
+CommandRetryResult ServerRuntime::retry_unacknowledged(const std::uint64_t now_us) {
+    std::vector<PendingCommand> retries;
+    CommandRetryResult result;
+    {
+        std::lock_guard lock(pending_mutex_);
+        for (auto iterator = pending_commands_.begin(); iterator != pending_commands_.end();) {
+            auto& pending = iterator->second;
+            const auto due = now_us >= pending.last_sent_us &&
+                             now_us - pending.last_sent_us >= config_.command_ack_timeout_us;
+            if (!due) {
+                ++iterator;
+            } else if (pending.attempts >= config_.command_max_attempts) {
+                iterator = pending_commands_.erase(iterator);
+                ++result.exhausted;
+            } else {
+                pending.last_sent_us = now_us;
+                ++pending.attempts;
+                retries.push_back(pending);
+                ++iterator;
+            }
+        }
+    }
+    for (const auto& retry : retries) {
+        sender_(retry.datagram, retry.endpoint);
+        ++result.resent;
+    }
+    return result;
+}
+
+std::size_t ServerRuntime::pending_command_count() const {
+    std::lock_guard lock(pending_mutex_);
+    return pending_commands_.size();
 }
 
 void ServerRuntime::send_heartbeats(
@@ -181,6 +233,31 @@ template <typename Message>
 void ServerRuntime::dispatch(const Message& message, const Endpoint& endpoint) {
     const auto encoded = protobuf::encode(Envelope{message});
     sender_(encoded, endpoint);
+}
+
+template <typename Message>
+void ServerRuntime::dispatch_tracked(
+    const Message& message, const Endpoint& endpoint,
+    const ComponentId acknowledgement_source, const std::uint64_t now_us) {
+    auto encoded = protobuf::encode(Envelope{message});
+    {
+        std::lock_guard lock(pending_mutex_);
+        pending_commands_.insert_or_assign(
+            pending_key(acknowledgement_source, message.command_id),
+            PendingCommand{encoded, endpoint, now_us, 1});
+    }
+    sender_(encoded, endpoint);
+}
+
+void ServerRuntime::acknowledge_delivery(const CommandAck& acknowledgement) {
+    std::lock_guard lock(pending_mutex_);
+    pending_commands_.erase(pending_key(
+        acknowledgement.header.source_id, acknowledgement.command_id));
+}
+
+std::uint64_t ServerRuntime::pending_key(
+    const ComponentId source, const std::uint32_t command_id) noexcept {
+    return (static_cast<std::uint64_t>(source) << 32U) | command_id;
 }
 
 void ServerRuntime::assign_effector_identity(EffectorTurretCommand& command) {
