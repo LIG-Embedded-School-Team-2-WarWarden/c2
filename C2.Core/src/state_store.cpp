@@ -3,6 +3,7 @@
 #include "c2/protocol_validation.hpp"
 
 #include <stdexcept>
+#include <algorithm>
 
 namespace c2 {
 StateStore::StateStore(const StateStoreConfig config) : config_(config) {
@@ -69,6 +70,20 @@ std::optional<TargetCoordinate> StateStore::target(
     if (found == targets_.end() || target_expired(found->second, now_us))
         return std::nullopt;
     return found->second;
+}
+
+std::vector<TargetCoordinate> StateStore::targets(const std::uint64_t now_us) const {
+    std::lock_guard lock(mutex_);
+    std::vector<TargetCoordinate> current;
+    current.reserve(targets_.size());
+    for (const auto& [id, target] : targets_) {
+        (void)id;
+        if (!target_expired(target, now_us)) current.push_back(target);
+    }
+    std::sort(current.begin(), current.end(), [](const auto& left, const auto& right) {
+        return left.detection_id < right.detection_id;
+    });
+    return current;
 }
 
 std::size_t StateStore::target_count(const std::uint64_t now_us) const {

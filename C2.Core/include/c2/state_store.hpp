@@ -7,6 +7,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 namespace c2 {
 struct StateStoreConfig {
@@ -34,6 +35,7 @@ public:
     [[nodiscard]] std::optional<AssetPose> asset_pose(ComponentId source) const;
     [[nodiscard]] std::optional<TargetCoordinate> target(
         std::uint32_t detection_id, std::uint64_t now_us) const;
+    [[nodiscard]] std::vector<TargetCoordinate> targets(std::uint64_t now_us) const;
     [[nodiscard]] std::size_t target_count(std::uint64_t now_us) const;
     std::size_t prune_expired(std::uint64_t now_us);
 

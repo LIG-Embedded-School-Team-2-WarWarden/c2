@@ -60,6 +60,9 @@ public:
         std::uint32_t duration_ms, std::uint64_t now_us);
     void send_heartbeats(std::uint64_t now_us, std::uint64_t uptime_ms);
     [[nodiscard]] bool pose_resynchronization_required(ComponentId source) const;
+    [[nodiscard]] ConnectionState connection_state(
+        ComponentId source, std::uint64_t now_us);
+    [[nodiscard]] std::vector<TargetCoordinate> targets(std::uint64_t now_us) const;
     [[nodiscard]] std::optional<ObservationStatus> observation_status() const;
     [[nodiscard]] std::optional<EffectorStatus> effector_status() const;
     [[nodiscard]] std::optional<CommandAck> acknowledgement(

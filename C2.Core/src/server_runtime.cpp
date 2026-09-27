@@ -152,6 +152,15 @@ bool ServerRuntime::pose_resynchronization_required(const ComponentId source) co
     return connections_.pose_resynchronization_required(source);
 }
 
+ConnectionState ServerRuntime::connection_state(
+    const ComponentId source, const std::uint64_t now_us) {
+    return connections_.state(source, now_us);
+}
+
+std::vector<TargetCoordinate> ServerRuntime::targets(const std::uint64_t now_us) const {
+    return state_.targets(now_us);
+}
+
 std::optional<ObservationStatus> ServerRuntime::observation_status() const { return telemetry_.observation_status(); }
 std::optional<EffectorStatus> ServerRuntime::effector_status() const { return telemetry_.effector_status(); }
 std::optional<CommandAck> ServerRuntime::acknowledgement(ComponentId source, std::uint32_t command_id) const {
