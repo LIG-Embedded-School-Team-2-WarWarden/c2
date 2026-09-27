@@ -561,4 +561,59 @@ TEST(ServerRuntimeAssignmentTest, RejectsUnsafeManualChoiceAndMarksUnregisteredA
     ASSERT_TRUE(server.assignment(1).has_value());
     EXPECT_EQ(server.assignment(1)->state, c2::AssignmentResult::assignment_lost);
 }
+
+TEST(ServerRuntimeAssignmentTest, EnforcesAssignedAttackSafetyAndStopsDisconnectedEffector) {
+    struct Sent { std::vector<std::byte> data; c2::Endpoint endpoint; };
+    std::vector<Sent> sent;
+    auto runtime_config = config();
+    runtime_config.registry = {8, 1'000, 10'000, 1'000};
+    c2::ServerRuntime server(runtime_config, [&](auto data, const auto& endpoint) {
+        sent.push_back({{data.begin(), data.end()}, endpoint});
+    });
+    const c2::Endpoint observer_source{"10.10.0.1", 40'001};
+    const c2::Endpoint effector_source{"10.10.0.2", 40'002};
+    const auto observer = registration(101, 1, c2::AssetRole::observation, 51'101);
+    const auto effector = registration(201, 9, c2::AssetRole::effector, 60'201);
+    ASSERT_EQ(server.ingest(bytes(observer), observer_source, 100), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(effector), effector_source, 100), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(effector, 2)), effector_source, 101), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(pose(effector, 3, 0)), effector_source, 102), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(effector_status(effector, 4)), effector_source, 103), c2::InboundResult::accepted);
+    c2::TargetCoordinate target{
+        {c2::protocol_version, 2, 104, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 1},
+        7, 104, c2::CoordinateFrame::project_frame, 10, 0, 0, 0.9F};
+    ASSERT_EQ(server.ingest(bytes(target), observer_source, 104), c2::InboundResult::accepted);
+    ASSERT_EQ(server.assign(1, 105).result, c2::AssignmentResult::assigned);
+
+    EXPECT_EQ(std::get<c2::DispatchError>(
+                  server.attack(c2::AttackAction::arm, 1, 0, 106)),
+              c2::DispatchError::command_rejected);
+    ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(
+        server.point_effector(1, 107)));
+    const auto arm = server.attack(c2::AttackAction::arm, 1, 0, 108);
+    ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(arm));
+    EXPECT_EQ(std::get<c2::AttackCommand>(arm).header.asset_id, 201U);
+    EXPECT_EQ(std::get<c2::AttackCommand>(arm).header.session_id, 9U);
+
+    auto armed = effector_status(effector, 5);
+    armed.attack_armed = true;
+    ASSERT_EQ(server.ingest(bytes(armed), effector_source, 109), c2::InboundResult::accepted);
+    const auto start = server.attack(c2::AttackAction::start, 1, 500, 110);
+    ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(start));
+    EXPECT_TRUE(server.assignment(1)->attack_started);
+    EXPECT_EQ(server.unassign(1), c2::AssignmentResult::operator_action_required);
+
+    c2::AssetUnregister unregister{
+        {c2::protocol_version, 6, 111, c2::ComponentId::effector_asset,
+         c2::ComponentId::command_and_control, 201, 9}, "link lost"};
+    ASSERT_EQ(server.ingest(bytes(unregister), effector_source, 111),
+              c2::InboundResult::accepted);
+    EXPECT_EQ(server.assignment(1)->state,
+              c2::AssignmentResult::operator_action_required);
+    const auto stop = server.stop_effector(201, 112);
+    ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(stop));
+    EXPECT_EQ(sent.back().endpoint.port, 60'201);
+    EXPECT_EQ(std::get<c2::AttackCommand>(stop).action, c2::AttackAction::stop);
+}
 }  // namespace
