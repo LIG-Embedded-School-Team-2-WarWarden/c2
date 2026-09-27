@@ -86,3 +86,13 @@
   송신 callback은 tracker 잠금 밖에서 호출한다. 기존 단일 자산 API는 회귀 호환 경계로
   유지했다.
 - 검증: server runtime 관련 시험 15/15 통과.
+
+## Cycle 8 — 자동 할당 후보 필터와 점수
+
+- Red: 연결, Pose, status, fault, capability, Pan/Tilt, 공격·배타 작업 필터와 거리,
+  회전량, 가중치 변경, 작업·degraded·실패 penalty, 결정적 동점 테스트를 먼저 추가했다.
+  `asset_assignment.hpp` 부재로 Release 빌드 실패를 확인했다.
+- Green: registry/track snapshot만 입력받는 순수 후보 정렬 및 선택 함수를 구현했다.
+- Refactor: 안전 후보 판정, 최단 각도, 가중치 검증을 작은 함수로 분리하고 점수 결과에
+  거리·회전량·계산된 목표 Pan/Tilt를 함께 보존했다.
+- 검증: assignment scoring 시험 6/6 통과.
