@@ -197,4 +197,57 @@ TEST(ServerRuntimeTest, ExposesConnectionsAndCurrentTargetsForOperatorDisplay) {
     ASSERT_EQ(targets.size(), 1U);
     EXPECT_EQ(targets.front().detection_id, 7U);
 }
+
+TEST(ServerRuntimeTest, RetriesCommandsUntilAcknowledged) {
+    auto runtime_config = config();
+    runtime_config.command_ack_timeout_us = 10;
+    runtime_config.command_max_attempts = 3;
+    std::vector<std::vector<std::byte>> sent;
+    c2::ServerRuntime server(runtime_config, [&](auto data, auto) {
+        sent.emplace_back(data.begin(), data.end());
+    });
+    ASSERT_EQ(server.ingest(bytes(heartbeat(c2::ComponentId::observation_asset)), 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(pose(c2::ComponentId::observation_asset)), 101),
+              c2::InboundResult::accepted);
+    ASSERT_TRUE(std::holds_alternative<c2::ObservationTurretCommand>(
+        server.command_observation(c2::ObservationTurretCommandType::scan, 10, 5, 102)));
+    ASSERT_EQ(sent.size(), 1U);
+    EXPECT_EQ(server.pending_command_count(), 1U);
+    EXPECT_EQ(server.retry_unacknowledged(111).resent, 0U);
+    EXPECT_EQ(server.retry_unacknowledged(112).resent, 1U);
+    ASSERT_EQ(sent.size(), 2U);
+    EXPECT_EQ(sent[0], sent[1]);
+
+    c2::CommandAck acknowledgement{
+        header(c2::ComponentId::observation_asset, 3, 113),
+        1, c2::CommandResult::completed, 0, 113};
+    EXPECT_EQ(server.ingest(bytes(acknowledgement), 113), c2::InboundResult::accepted);
+    EXPECT_EQ(server.pending_command_count(), 0U);
+    EXPECT_EQ(server.retry_unacknowledged(200).resent, 0U);
+}
+
+TEST(ServerRuntimeTest, StopsRetryingAfterConfiguredAttemptLimit) {
+    auto runtime_config = config();
+    runtime_config.command_ack_timeout_us = 10;
+    runtime_config.command_max_attempts = 3;
+    std::vector<std::vector<std::byte>> sent;
+    c2::ServerRuntime server(runtime_config, [&](auto data, auto) {
+        sent.emplace_back(data.begin(), data.end());
+    });
+    ASSERT_EQ(server.ingest(bytes(heartbeat(c2::ComponentId::observation_asset)), 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(pose(c2::ComponentId::observation_asset)), 101),
+              c2::InboundResult::accepted);
+    ASSERT_TRUE(std::holds_alternative<c2::ObservationTurretCommand>(
+        server.command_observation(c2::ObservationTurretCommandType::home, 0, 0, 102)));
+
+    EXPECT_EQ(server.retry_unacknowledged(112).resent, 1U);
+    EXPECT_EQ(server.retry_unacknowledged(122).resent, 1U);
+    const auto exhausted = server.retry_unacknowledged(132);
+    EXPECT_EQ(exhausted.resent, 0U);
+    EXPECT_EQ(exhausted.exhausted, 1U);
+    EXPECT_EQ(server.pending_command_count(), 0U);
+    EXPECT_EQ(sent.size(), 3U);
+}
 }  // namespace

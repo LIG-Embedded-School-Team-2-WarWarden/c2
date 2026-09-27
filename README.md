@@ -76,7 +76,9 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드 및 전체 테�
 
 일반 명령은 해당 자산의 Heartbeat 연결과 재연결 이후 `AssetPose` 재동기화가
 완료되어야 전송된다. `STOP`과 `EMERGENCY_STOP`은 안전 우선 명령이므로 이 조건을
-우회한다. timeout, 장비 한계 및 주소는 현재 ICD의 TBD 항목이므로 런타임 설정 확장이
+우회한다. 일반 명령은 200ms 안에 ACK가 없으면 재전송하며 최초 전송을 포함해 최대
+3회 시도한다. `EMERGENCY_STOP`은 ACK 대기 없이 동일 명령을 즉시 3회 전송한다.
+timeout, 장비 한계 및 주소는 현재 ICD의 TBD 항목이므로 런타임 설정 확장이
 필요한 배포 환경에서는 확정값으로 교체해야 한다.
 
 ## 더미 자산 통합 시연

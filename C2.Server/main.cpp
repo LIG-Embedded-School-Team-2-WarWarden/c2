@@ -103,13 +103,21 @@ int main(int argc, char* argv[]) {
 
         const auto started_at = std::chrono::steady_clock::now();
         std::jthread heartbeat_worker([&](const std::stop_token stop) {
+            std::uint32_t tick{};
             while (!stop.stop_requested()) {
-                const auto uptime_ms = static_cast<std::uint64_t>(
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - started_at).count());
-                runtime.send_heartbeats(now_us(), uptime_ms);
-                for (int elapsed = 0; elapsed < 10 && !stop.stop_requested(); ++elapsed)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                const auto now = now_us();
+                if (tick % 10 == 0) {
+                    const auto uptime_ms = static_cast<std::uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - started_at).count());
+                    runtime.send_heartbeats(now, uptime_ms);
+                }
+                const auto retries = runtime.retry_unacknowledged(now);
+                if (retries.exhausted != 0)
+                    std::cerr << "command acknowledgement retry exhausted: "
+                              << retries.exhausted << '\n';
+                ++tick;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         });
 
@@ -151,7 +159,8 @@ int main(int argc, char* argv[]) {
                 std::cout << "observation=" << connection_name(runtime.connection_state(
                                  c2::ComponentId::observation_asset, now))
                           << " effector=" << connection_name(runtime.connection_state(
-                                 c2::ComponentId::effector_asset, now)) << '\n';
+                                 c2::ComponentId::effector_asset, now))
+                          << " pending_commands=" << runtime.pending_command_count() << '\n';
                 if (const auto status = runtime.observation_status())
                     std::cout << "observation pan=" << status->current_pan_deg
                               << " tilt=" << status->current_tilt_deg
