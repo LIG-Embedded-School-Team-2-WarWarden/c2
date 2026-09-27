@@ -74,3 +74,15 @@
 - Refactor: 상태 판정과 종결 결과 매핑을 분리하고, `poll`은 잠금 아래에서 snapshot만
   만든 뒤 호출자가 네트워크 송신을 수행할 수 있게 했다.
 - 검증: command tracker 시험 6/6 통과.
+
+## Cycle 7 — 동적 관측 자산 명령 라우팅
+
+- Red: 등록 자산의 광고 Endpoint 라우팅, 명령 헤더의 자산·세션 식별, Pose 동기화
+  차단, 진행/최종 ACK, 새 세션의 이전 pending 종료 테스트를 먼저 추가했다. 자산 ID를
+  받는 명령 API가 없어 Release 빌드 실패를 확인했다.
+- Green: registry snapshot 기반 관측 명령 API를 추가하고 `CommandTracker`를 runtime에
+  연결했다. 새 세션 등록과 unregister는 해당 이전 세션 pending을 종료한다.
+- Refactor: 명령을 tracker에 먼저 등록한 뒤 송신해 즉시 ACK와의 경쟁을 막고, retry의
+  송신 callback은 tracker 잠금 밖에서 호출한다. 기존 단일 자산 API는 회귀 호환 경계로
+  유지했다.
+- 검증: server runtime 관련 시험 15/15 통과.

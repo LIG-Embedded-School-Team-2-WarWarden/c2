@@ -3,6 +3,7 @@
 #include "c2/asset_registry.hpp"
 #include "c2/attack_command_service.hpp"
 #include "c2/connection_monitor.hpp"
+#include "c2/command_tracker.hpp"
 #include "c2/effector_command_service.hpp"
 #include "c2/observation_command_service.hpp"
 #include "c2/state_store.hpp"
@@ -34,6 +35,7 @@ struct ServerRuntimeConfig {
     std::uint32_t command_max_attempts{3};
     AssetRegistryConfig registry;
     TrackStoreConfig tracks;
+    CommandTrackerConfig commands;
 };
 
 struct CommandRetryResult {
@@ -68,6 +70,9 @@ public:
     [[nodiscard]] ObservationDispatchResult command_observation(
         ObservationTurretCommandType type, float pan_deg, float tilt_deg,
         std::uint64_t now_us);
+    [[nodiscard]] ObservationDispatchResult command_observation(
+        std::uint64_t asset_id, ObservationTurretCommandType type,
+        float pan_deg, float tilt_deg, std::uint64_t now_us);
     [[nodiscard]] EffectorDispatchResult point_effector(
         std::uint32_t target_id, std::uint64_t now_us);
     [[nodiscard]] AttackDispatchResult attack(
@@ -105,6 +110,7 @@ private:
     DatagramSender sender_;
     AssetRegistry registry_;
     TrackStore tracks_;
+    CommandTracker command_tracker_;
     StateStore state_;
     TelemetryStore telemetry_;
     ConnectionMonitor connections_;
