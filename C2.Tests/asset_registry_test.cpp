@@ -2,7 +2,11 @@
 
 #include "c2/asset_registry.hpp"
 
+#include <atomic>
 #include <cstdint>
+#include <latch>
+#include <thread>
+#include <vector>
 
 namespace {
 c2::AssetRegistration registration(
@@ -155,4 +159,64 @@ TEST(AssetRegistryTest, TracksHeartbeatTimeoutIndependentlyPerAsset) {
     EXPECT_EQ(registry.connection_state(20, 211),
               c2::AssetConnectionState::connected);
     EXPECT_EQ(registry.connection_state(999, 211), std::nullopt);
+}
+
+TEST(AssetRegistryTest, RejectsDuplicateAndOutOfOrderHeartbeatAndPose) {
+    c2::AssetRegistry registry({2, 1'000, 10'000});
+    const auto asset = registration(10, 1, c2::AssetRole::observation, 51'010, 10);
+    const c2::Endpoint endpoint{"10.0.0.1", 51'010};
+    ASSERT_EQ(registry.register_asset(asset, endpoint, 100),
+              c2::AssetRegistryResult::registered);
+    const auto first_heartbeat = heartbeat(asset, 2);
+    ASSERT_EQ(registry.observe_heartbeat(first_heartbeat, endpoint, 110),
+              c2::AssetRegistryResult::stored);
+    EXPECT_EQ(registry.observe_heartbeat(first_heartbeat, endpoint, 111),
+              c2::AssetRegistryResult::duplicate);
+    auto stale_heartbeat = heartbeat(asset, 3);
+    stale_heartbeat.timestamp_us = first_heartbeat.timestamp_us - 1;
+    EXPECT_EQ(registry.observe_heartbeat(stale_heartbeat, endpoint, 112),
+              c2::AssetRegistryResult::stale);
+
+    const auto first_pose = pose(asset, 1);
+    ASSERT_EQ(registry.update_pose(first_pose, endpoint, 120),
+              c2::AssetRegistryResult::stored);
+    EXPECT_EQ(registry.update_pose(first_pose, endpoint, 121),
+              c2::AssetRegistryResult::duplicate);
+    auto stale_pose = first_pose;
+    stale_pose.header.sequence++;
+    stale_pose.header.timestamp_us--;
+    EXPECT_EQ(registry.update_pose(stale_pose, endpoint, 122),
+              c2::AssetRegistryResult::stale);
+}
+
+TEST(AssetRegistryTest, SerializesConcurrentRegistrationsWithoutLosingAssets) {
+    constexpr std::size_t count = 8;
+    c2::AssetRegistry registry({count, 1'000, 10'000});
+    std::latch ready(count);
+    std::latch start(1);
+    std::atomic_size_t registered{};
+    std::vector<std::jthread> workers;
+    workers.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        workers.emplace_back([&, index] {
+            ready.count_down();
+            start.wait();
+            const auto id = static_cast<std::uint64_t>(count - index);
+            const auto port = static_cast<std::uint16_t>(51'000 + id);
+            const auto value = registration(
+                id, 1, c2::AssetRole::observation, port, 10);
+            if (registry.register_asset(value, {"127.0.0.1", port}, 100) ==
+                c2::AssetRegistryResult::registered)
+                ++registered;
+        });
+    }
+    ready.wait();
+    start.count_down();
+    workers.clear();
+
+    EXPECT_EQ(registered.load(), count);
+    const auto snapshots = registry.assets(c2::AssetRole::observation, 101);
+    ASSERT_EQ(snapshots.size(), count);
+    for (std::size_t index = 0; index < count; ++index)
+        EXPECT_EQ(snapshots[index].asset_id, index + 1);
 }
