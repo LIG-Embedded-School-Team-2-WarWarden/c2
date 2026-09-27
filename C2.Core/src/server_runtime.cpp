@@ -20,6 +20,7 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
       registry_(config_.registry),
       tracks_(config_.tracks),
       command_tracker_(config_.commands),
+      assignments_(config_.assignments),
       state_(config_.state),
       telemetry_(),
       connections_(config_.connections),
@@ -51,9 +52,14 @@ InboundResult ServerRuntime::ingest(
                 const auto result = registry_.register_asset(
                     message, source, received_at_us);
                 if (result == AssetRegistryResult::session_replaced && previous &&
-                    previous->session_id != message.header.session_id)
+                    previous->session_id != message.header.session_id) {
                     (void)command_tracker_.end_session(
                         previous->asset_id, previous->session_id, received_at_us);
+                    if (previous->role == AssetRole::effector)
+                        (void)assignments_.mark_unavailable(
+                            previous->asset_id, previous->session_id,
+                            received_at_us);
+                }
                 return result == AssetRegistryResult::registered ||
                                result == AssetRegistryResult::refreshed ||
                                result == AssetRegistryResult::session_replaced
@@ -65,6 +71,9 @@ InboundResult ServerRuntime::ingest(
                 if (result != AssetRegistryResult::unregistered)
                     return InboundResult::rejected;
                 (void)command_tracker_.end_session(
+                    message.header.asset_id, message.header.session_id,
+                    received_at_us);
+                (void)assignments_.mark_unavailable(
                     message.header.asset_id, message.header.session_id,
                     received_at_us);
                 return InboundResult::accepted;
@@ -102,10 +111,15 @@ InboundResult ServerRuntime::ingest(
                                result == AckUpdateResult::duplicate
                            ? InboundResult::accepted
                            : InboundResult::rejected;
-            } else if constexpr (
-                std::is_same_v<T, ObservationStatus> ||
-                std::is_same_v<T, EffectorStatus> ||
-                std::is_same_v<T, ErrorReport>) {
+            } else if constexpr (std::is_same_v<T, EffectorStatus>) {
+                const auto result = registry_.update_effector_status(
+                    message, source, received_at_us);
+                return result == AssetRegistryResult::stored ||
+                               result == AssetRegistryResult::duplicate
+                           ? InboundResult::accepted
+                           : InboundResult::rejected;
+            } else if constexpr (std::is_same_v<T, ObservationStatus> ||
+                                 std::is_same_v<T, ErrorReport>) {
                 if (registry_.authenticate(
                         message.header, source, received_at_us) !=
                     AssetRegistryResult::stored)
@@ -343,6 +357,61 @@ std::vector<AssetSnapshot> ServerRuntime::assets(const std::uint64_t now_us) {
 
 std::vector<TrackSnapshot> ServerRuntime::tracks(const std::uint64_t now_us) {
     return tracks_.tracks(now_us);
+}
+
+AssignmentDecision ServerRuntime::assign(
+    const std::uint64_t track_id, const std::uint64_t now_us) {
+    const auto track = tracks_.track(track_id, now_us);
+    if (!track) return {AssignmentResult::invalid_track, std::nullopt};
+    auto candidates = effector_candidates(now_us);
+    invalidate_unsafe_assignment(*track, candidates, now_us);
+    return assignments_.assign(*track, candidates);
+}
+
+AssignmentDecision ServerRuntime::assign(
+    const std::uint64_t track_id, const std::uint64_t effector_asset_id,
+    const std::uint64_t now_us) {
+    const auto track = tracks_.track(track_id, now_us);
+    if (!track) return {AssignmentResult::invalid_track, std::nullopt};
+    auto candidates = effector_candidates(now_us);
+    invalidate_unsafe_assignment(*track, candidates, now_us);
+    return assignments_.assign(*track, candidates, effector_asset_id);
+}
+
+std::optional<AssetAssignment> ServerRuntime::assignment(
+    const std::uint64_t track_id) const {
+    return assignments_.assignment(track_id);
+}
+
+std::vector<EffectorCandidate> ServerRuntime::effector_candidates(
+    const std::uint64_t now_us) {
+    std::vector<EffectorCandidate> candidates;
+    for (auto& asset : registry_.assets(AssetRole::effector, now_us)) {
+        candidates.push_back({asset, asset.effector_status, asset.status_current,
+                              false, false, 0, 0});
+    }
+    return candidates;
+}
+
+void ServerRuntime::invalidate_unsafe_assignment(
+    const TrackSnapshot& track,
+    const std::vector<EffectorCandidate>& candidates,
+    const std::uint64_t now_us) {
+    const auto existing = assignments_.assignment(track.track_id);
+    if (!existing || existing->state != AssignmentResult::assigned) return;
+    std::vector<EffectorCandidate> assigned_candidate;
+    for (const auto& candidate : candidates) {
+        if (candidate.asset.asset_id == existing->effector_asset_id &&
+            candidate.asset.session_id == existing->effector_session_id) {
+            assigned_candidate.push_back(candidate);
+            break;
+        }
+    }
+    if (!select_effector_candidate(
+            track, assigned_candidate, config_.assignments.required_capabilities,
+            config_.assignments.weights))
+        (void)assignments_.mark_unavailable(
+            existing->effector_asset_id, existing->effector_session_id, now_us);
 }
 
 std::optional<ObservationStatus> ServerRuntime::observation_status() const { return telemetry_.observation_status(); }

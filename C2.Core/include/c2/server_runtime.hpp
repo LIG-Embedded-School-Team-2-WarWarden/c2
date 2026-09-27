@@ -1,6 +1,7 @@
 #pragma once
 
 #include "c2/asset_registry.hpp"
+#include "c2/asset_assignment.hpp"
 #include "c2/attack_command_service.hpp"
 #include "c2/connection_monitor.hpp"
 #include "c2/command_tracker.hpp"
@@ -36,6 +37,7 @@ struct ServerRuntimeConfig {
     AssetRegistryConfig registry;
     TrackStoreConfig tracks;
     CommandTrackerConfig commands;
+    AssetAssignmentConfig assignments;
 };
 
 struct CommandRetryResult {
@@ -87,6 +89,13 @@ public:
     [[nodiscard]] std::vector<TargetCoordinate> targets(std::uint64_t now_us) const;
     [[nodiscard]] std::vector<AssetSnapshot> assets(std::uint64_t now_us);
     [[nodiscard]] std::vector<TrackSnapshot> tracks(std::uint64_t now_us);
+    [[nodiscard]] AssignmentDecision assign(
+        std::uint64_t track_id, std::uint64_t now_us);
+    [[nodiscard]] AssignmentDecision assign(
+        std::uint64_t track_id, std::uint64_t effector_asset_id,
+        std::uint64_t now_us);
+    [[nodiscard]] std::optional<AssetAssignment> assignment(
+        std::uint64_t track_id) const;
     [[nodiscard]] std::optional<ObservationStatus> observation_status() const;
     [[nodiscard]] std::optional<EffectorStatus> effector_status() const;
     [[nodiscard]] std::optional<CommandAck> acknowledgement(
@@ -103,6 +112,12 @@ private:
         const Message& message, const Endpoint& endpoint,
         ComponentId acknowledgement_source, std::uint64_t now_us);
     void acknowledge_delivery(const CommandAck& acknowledgement);
+    [[nodiscard]] std::vector<EffectorCandidate> effector_candidates(
+        std::uint64_t now_us);
+    void invalidate_unsafe_assignment(
+        const TrackSnapshot& track,
+        const std::vector<EffectorCandidate>& candidates,
+        std::uint64_t now_us);
     void assign_effector_identity(EffectorTurretCommand& command);
     void assign_effector_identity(AttackCommand& command);
 
@@ -111,6 +126,7 @@ private:
     AssetRegistry registry_;
     TrackStore tracks_;
     CommandTracker command_tracker_;
+    AssetAssignmentService assignments_;
     StateStore state_;
     TelemetryStore telemetry_;
     ConnectionMonitor connections_;

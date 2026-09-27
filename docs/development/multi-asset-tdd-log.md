@@ -120,3 +120,17 @@
 - Refactor: snapshot 생성 시 설정된 상태 timeout으로 `status_current`를 계산해
   할당 정책이 수신 시각이나 전역 상태 저장소를 직접 해석하지 않도록 했다.
 - 검증: asset registry 시험 10/10 통과.
+
+## Cycle 11 — 런타임 다중 타격 자산 할당
+
+- Red: 등록된 두 타격 자산 중 건강하고 가까운 자산 자동 선택, 안전 조건을 위반한
+  수동 지정 거부, unregister 시 할당 상실, heartbeat timeout 후 생존 자산 재할당
+  테스트를 먼저 추가했다. runtime 설정과 할당 API가 없어 Release 빌드 실패를
+  확인했다.
+- Green: runtime이 registry의 자산별 Pose와 `EffectorStatus` snapshot으로 후보를
+  구성하고 `AssetAssignmentService`에 자동·수동 할당을 위임하도록 연결했다.
+  unregister와 session 교체는 해당 자산의 할당을 즉시 unavailable로 전환한다.
+- Refactor: 기존 할당을 반환하기 전에 동일 안전 필터로 재검증하고, 공격 시작 전
+  heartbeat timeout·상태 노후화·고장 등으로 부적합해진 경우 다른 자산을 선택한다.
+  후보 snapshot 구성은 공통 함수로 분리했다.
+- 검증: Release 전체 빌드 성공, 전체 시험 169/169 통과.
