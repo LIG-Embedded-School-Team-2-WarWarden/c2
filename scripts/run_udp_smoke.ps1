@@ -68,6 +68,7 @@ try {
         '--effector-command-port', '16001',
         '--effector-status-port', '16002',
         '--target-validity-ms', '3000',
+        '--heartbeat-interval-ms', '700',
         '--heartbeat-timeout-ms', '4000',
         '--command-validity-ms', '700',
         '--ack-timeout-ms', '300',
@@ -78,11 +79,16 @@ try {
         '--listen-port', '15101',
         '--status-port', '15001',
         '--target-port', '15002',
+        '--status-interval-ms', '80',
+        '--heartbeat-interval-ms', '700',
+        '--target-interval-ms', '700',
         '--watchdog-timeout-ms', '4000'
     )
     $effector = Start-RedirectedProcess $effectorPath @(
         '--listen-port', '16001',
         '--status-port', '16002',
+        '--status-interval-ms', '80',
+        '--heartbeat-interval-ms', '700',
         '--watchdog-timeout-ms', '4000'
     )
     $processes = @($server, $observation, $effector)
@@ -124,9 +130,9 @@ try {
             throw "Process failed with exit code $($process.ExitCode): $($process.StartInfo.FileName)"
         }
     }
-    Assert-InvalidConfiguration $serverPath @('--command-attempts', '0') 'invalid command attempts'
-    Assert-InvalidConfiguration $observationPath @('--listen-port', '0') 'invalid UDP port'
-    Assert-InvalidConfiguration $effectorPath @('--watchdog-timeout-ms', '0') 'invalid watchdog timeout'
+    Assert-InvalidConfiguration $serverPath @('--heartbeat-interval-ms', '0') 'invalid heartbeat interval'
+    Assert-InvalidConfiguration $observationPath @('--target-interval-ms', '0') 'invalid target interval'
+    Assert-InvalidConfiguration $effectorPath @('--status-interval-ms', '0') 'invalid status interval'
     Write-Host 'UDP process smoke test passed: runtime ports and timing, six commands, connected assets, no pending ACK, invalid options rejected.'
 } finally {
     foreach ($process in $processes) {
