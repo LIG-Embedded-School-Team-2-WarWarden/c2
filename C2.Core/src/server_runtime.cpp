@@ -19,6 +19,7 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
       sender_(std::move(sender)),
       registry_(config_.registry),
       tracks_(config_.tracks),
+      command_tracker_(config_.commands),
       state_(config_.state),
       telemetry_(),
       connections_(config_.connections),
@@ -45,18 +46,28 @@ InboundResult ServerRuntime::ingest(
         [&](const auto& message) -> InboundResult {
             using T = std::decay_t<decltype(message)>;
             if constexpr (std::is_same_v<T, AssetRegistration>) {
+                const auto previous = registry_.asset(
+                    message.header.asset_id, received_at_us);
                 const auto result = registry_.register_asset(
                     message, source, received_at_us);
+                if (result == AssetRegistryResult::session_replaced && previous &&
+                    previous->session_id != message.header.session_id)
+                    (void)command_tracker_.end_session(
+                        previous->asset_id, previous->session_id, received_at_us);
                 return result == AssetRegistryResult::registered ||
                                result == AssetRegistryResult::refreshed ||
                                result == AssetRegistryResult::session_replaced
                            ? InboundResult::accepted
                            : InboundResult::rejected;
             } else if constexpr (std::is_same_v<T, AssetUnregister>) {
-                return registry_.unregister_asset(message, source, received_at_us) ==
-                               AssetRegistryResult::unregistered
-                           ? InboundResult::accepted
-                           : InboundResult::rejected;
+                const auto result = registry_.unregister_asset(
+                    message, source, received_at_us);
+                if (result != AssetRegistryResult::unregistered)
+                    return InboundResult::rejected;
+                (void)command_tracker_.end_session(
+                    message.header.asset_id, message.header.session_id,
+                    received_at_us);
+                return InboundResult::accepted;
             } else if constexpr (std::is_same_v<T, Heartbeat>) {
                 const auto result = registry_.observe_heartbeat(
                     message, source, received_at_us);
@@ -79,10 +90,21 @@ InboundResult ServerRuntime::ingest(
                                result.result == TrackUpdateResult::duplicate
                            ? InboundResult::accepted
                            : InboundResult::rejected;
+            } else if constexpr (std::is_same_v<T, CommandAck>) {
+                if (registry_.authenticate(
+                        message.header, source, received_at_us) !=
+                    AssetRegistryResult::stored)
+                    return InboundResult::rejected;
+                const auto result = command_tracker_.observe(
+                    message, received_at_us);
+                return result == AckUpdateResult::progress ||
+                               result == AckUpdateResult::terminal ||
+                               result == AckUpdateResult::duplicate
+                           ? InboundResult::accepted
+                           : InboundResult::rejected;
             } else if constexpr (
                 std::is_same_v<T, ObservationStatus> ||
                 std::is_same_v<T, EffectorStatus> ||
-                std::is_same_v<T, CommandAck> ||
                 std::is_same_v<T, ErrorReport>) {
                 if (registry_.authenticate(
                         message.header, source, received_at_us) !=
@@ -94,6 +116,35 @@ InboundResult ServerRuntime::ingest(
             return ingest(datagram, received_at_us);
         },
         payload);
+}
+
+ObservationDispatchResult ServerRuntime::command_observation(
+    const std::uint64_t asset_id, const ObservationTurretCommandType type,
+    const float pan_deg, const float tilt_deg, const std::uint64_t now_us) {
+    const auto asset = registry_.asset(asset_id, now_us);
+    if (!asset || asset->role != AssetRole::observation ||
+        asset->connection_state != AssetConnectionState::connected)
+        return DispatchError::connection_unavailable;
+    if (!asset->pose_synchronized)
+        return DispatchError::pose_resynchronization_required;
+    try {
+        auto command = observation_commands_.create(
+            type, pan_deg, tilt_deg, now_us);
+        command.header.asset_id = asset->asset_id;
+        command.header.session_id = asset->session_id;
+        auto encoded = protobuf::encode(Envelope{command});
+        const auto tracked = command_tracker_.track(
+            c2::PendingCommand{asset->asset_id, asset->session_id,
+                               command.command_id, encoded,
+                               asset->command_endpoint, now_us,
+                               command.valid_until_us});
+        if (tracked != CommandTrackResult::tracked)
+            return DispatchError::command_rejected;
+        sender_(encoded, asset->command_endpoint);
+        return command;
+    } catch (const std::exception&) {
+        return DispatchError::command_rejected;
+    }
 }
 
 InboundResult ServerRuntime::ingest(
@@ -237,12 +288,21 @@ CommandRetryResult ServerRuntime::retry_unacknowledged(const std::uint64_t now_u
         sender_(retry.datagram, retry.endpoint);
         ++result.resent;
     }
+    const auto dynamic = command_tracker_.poll(now_us);
+    for (const auto& retry : dynamic.transmissions) {
+        sender_(retry.datagram, retry.endpoint);
+        ++result.resent;
+    }
+    for (const auto& outcome : dynamic.finalized) {
+        if (outcome.state == CommandTerminalState::delivery_exhausted)
+            ++result.exhausted;
+    }
     return result;
 }
 
 std::size_t ServerRuntime::pending_command_count() const {
     std::lock_guard lock(pending_mutex_);
-    return pending_commands_.size();
+    return pending_commands_.size() + command_tracker_.pending_count();
 }
 
 void ServerRuntime::send_heartbeats(
