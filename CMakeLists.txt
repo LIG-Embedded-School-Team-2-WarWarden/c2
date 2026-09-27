@@ -18,6 +18,7 @@ set(C2_CORE_SOURCES
     C2.Core/src/server_runtime.cpp
     C2.Core/src/state_store.cpp
     C2.Core/src/telemetry_store.cpp
+    C2.Core/src/track_store.cpp
     C2.Core/src/udp_transport.cpp)
 
 add_library(c2_core STATIC ${C2_CORE_SOURCES})

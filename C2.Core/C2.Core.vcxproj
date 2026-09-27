@@ -155,6 +155,7 @@
     <ClCompile Include="src\server_runtime.cpp" />
     <ClCompile Include="src\state_store.cpp" />
     <ClCompile Include="src\telemetry_store.cpp" />
+    <ClCompile Include="src\track_store.cpp" />
     <ClCompile Include="src\udp_transport.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -171,6 +172,7 @@
     <ClInclude Include="include\c2\server_runtime.hpp" />
     <ClInclude Include="include\c2\state_store.hpp" />
     <ClInclude Include="include\c2\telemetry_store.hpp" />
+    <ClInclude Include="include\c2\track_store.hpp" />
     <ClInclude Include="include\c2\udp_transport.hpp" />
   </ItemGroup>
   <ItemGroup>
