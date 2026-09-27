@@ -288,3 +288,23 @@ TEST(AssetRegistryTest, SessionReplacementClearsEffectorStatus) {
                   effector_status(old_session, 3, 103), old_source, 103),
               c2::AssetRegistryResult::session_mismatch);
 }
+
+TEST(AssetRegistryTest, KeepsRetiredEffectorsDiscoverableOnlyDuringRetention) {
+    c2::AssetRegistry registry({4, 1'000, 100, 100});
+    const c2::Endpoint source{"10.0.0.9", 40'009};
+    const auto asset = registration(90, 7, c2::AssetRole::effector, 60'090);
+    ASSERT_EQ(registry.register_asset(asset, source, 10),
+              c2::AssetRegistryResult::registered);
+    c2::AssetUnregister unregister{
+        {c2::protocol_version, 2, 20, c2::ComponentId::effector_asset,
+         c2::ComponentId::command_and_control, 90, 7}, "shutdown"};
+    ASSERT_EQ(registry.unregister_asset(unregister, source, 20),
+              c2::AssetRegistryResult::unregistered);
+
+    const auto retained = registry.known_assets(c2::AssetRole::effector, 120);
+    ASSERT_EQ(retained.size(), 1U);
+    EXPECT_EQ(retained.front().asset_id, 90U);
+    EXPECT_EQ(retained.front().connection_state,
+              c2::AssetConnectionState::unregistered);
+    EXPECT_TRUE(registry.known_assets(c2::AssetRole::effector, 121).empty());
+}

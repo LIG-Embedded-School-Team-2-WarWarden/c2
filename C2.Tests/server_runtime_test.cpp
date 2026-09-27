@@ -615,5 +615,24 @@ TEST(ServerRuntimeAssignmentTest, EnforcesAssignedAttackSafetyAndStopsDisconnect
     ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(stop));
     EXPECT_EQ(sent.back().endpoint.port, 60'201);
     EXPECT_EQ(std::get<c2::AttackCommand>(stop).action, c2::AttackAction::stop);
+
+    const auto before_estop = sent.size();
+    const auto estop = server.emergency_stop_all(113);
+    EXPECT_EQ(estop.assets, 1U);
+    EXPECT_EQ(estop.datagrams, runtime_config.emergency_stop_repetitions);
+    ASSERT_EQ(sent.size(), before_estop + runtime_config.emergency_stop_repetitions);
+    std::uint32_t repeated_command_id{};
+    for (std::size_t index = before_estop; index < sent.size(); ++index) {
+        const auto decoded = c2::protobuf::decode(sent[index].data);
+        ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+        const auto& command = std::get<c2::AttackCommand>(
+            std::get<c2::Envelope>(decoded).payload);
+        EXPECT_EQ(command.action, c2::AttackAction::emergency_stop);
+        EXPECT_EQ(command.header.asset_id, 201U);
+        EXPECT_EQ(command.header.session_id, 9U);
+        EXPECT_EQ(sent[index].endpoint.port, 60'201);
+        if (repeated_command_id == 0) repeated_command_id = command.command_id;
+        EXPECT_EQ(command.command_id, repeated_command_id);
+    }
 }
 }  // namespace
