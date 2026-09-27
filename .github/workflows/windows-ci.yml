@@ -16,3 +16,6 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: UDP process smoke test
+        shell: pwsh
+        run: ./scripts/run_udp_smoke.ps1 -BinDir ./build/Release
