@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(C2_CORE_SOURCES
     C2.Core/src/attack_command_service.cpp
     C2.Core/src/asset_registry.cpp
+    C2.Core/src/asset_assignment.cpp
     C2.Core/src/connection_monitor.cpp
     C2.Core/src/command_tracker.cpp
     C2.Core/src/dummy_assets.cpp

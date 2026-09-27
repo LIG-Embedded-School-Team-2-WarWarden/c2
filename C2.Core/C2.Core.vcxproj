@@ -145,6 +145,7 @@
   <ItemGroup>
     <ClCompile Include="src\attack_command_service.cpp" />
     <ClCompile Include="src\asset_registry.cpp" />
+    <ClCompile Include="src\asset_assignment.cpp" />
     <ClCompile Include="src\connection_monitor.cpp" />
     <ClCompile Include="src\command_tracker.cpp" />
     <ClCompile Include="src\dummy_assets.cpp" />
@@ -162,6 +163,7 @@
   <ItemGroup>
     <ClInclude Include="include\c2\attack_command_service.hpp" />
     <ClInclude Include="include\c2\asset_registry.hpp" />
+    <ClInclude Include="include\c2\asset_assignment.hpp" />
     <ClInclude Include="include\c2\connection_monitor.hpp" />
     <ClInclude Include="include\c2\command_tracker.hpp" />
     <ClInclude Include="include\c2\dummy_assets.hpp" />
