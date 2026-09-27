@@ -17,6 +17,7 @@ std::uint32_t next_non_zero(std::uint32_t value) noexcept {
 ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
     : config_(std::move(config)),
       sender_(std::move(sender)),
+      registry_(config_.registry),
       state_(config_.state),
       telemetry_(),
       connections_(config_.connections),
@@ -30,6 +31,59 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
         throw std::invalid_argument("emergency stop repetitions must be non-zero");
     if (config_.command_ack_timeout_us == 0 || config_.command_max_attempts == 0)
         throw std::invalid_argument("command acknowledgement retry configuration is invalid");
+}
+
+InboundResult ServerRuntime::ingest(
+    const std::span<const std::byte> datagram, const Endpoint& source,
+    const std::uint64_t received_at_us) {
+    const auto decoded = protobuf::decode(datagram);
+    if (!std::holds_alternative<Envelope>(decoded))
+        return InboundResult::invalid_packet;
+    const auto& payload = std::get<Envelope>(decoded).payload;
+    return std::visit(
+        [&](const auto& message) -> InboundResult {
+            using T = std::decay_t<decltype(message)>;
+            if constexpr (std::is_same_v<T, AssetRegistration>) {
+                const auto result = registry_.register_asset(
+                    message, source, received_at_us);
+                return result == AssetRegistryResult::registered ||
+                               result == AssetRegistryResult::refreshed ||
+                               result == AssetRegistryResult::session_replaced
+                           ? InboundResult::accepted
+                           : InboundResult::rejected;
+            } else if constexpr (std::is_same_v<T, AssetUnregister>) {
+                return registry_.unregister_asset(message, source, received_at_us) ==
+                               AssetRegistryResult::unregistered
+                           ? InboundResult::accepted
+                           : InboundResult::rejected;
+            } else if constexpr (std::is_same_v<T, Heartbeat>) {
+                const auto result = registry_.observe_heartbeat(
+                    message, source, received_at_us);
+                if (result != AssetRegistryResult::stored &&
+                    result != AssetRegistryResult::duplicate)
+                    return InboundResult::rejected;
+            } else if constexpr (std::is_same_v<T, AssetPose>) {
+                const auto result = registry_.update_pose(
+                    message, source, received_at_us);
+                if (result != AssetRegistryResult::stored &&
+                    result != AssetRegistryResult::duplicate)
+                    return InboundResult::rejected;
+            } else if constexpr (
+                std::is_same_v<T, TargetCoordinate> ||
+                std::is_same_v<T, ObservationStatus> ||
+                std::is_same_v<T, EffectorStatus> ||
+                std::is_same_v<T, CommandAck> ||
+                std::is_same_v<T, ErrorReport>) {
+                if (registry_.authenticate(
+                        message.header, source, received_at_us) !=
+                    AssetRegistryResult::stored)
+                    return InboundResult::rejected;
+            } else {
+                return InboundResult::unsupported_message;
+            }
+            return ingest(datagram, received_at_us);
+        },
+        payload);
 }
 
 InboundResult ServerRuntime::ingest(
@@ -211,6 +265,10 @@ ConnectionState ServerRuntime::connection_state(
 
 std::vector<TargetCoordinate> ServerRuntime::targets(const std::uint64_t now_us) const {
     return state_.targets(now_us);
+}
+
+std::vector<AssetSnapshot> ServerRuntime::assets(const std::uint64_t now_us) {
+    return registry_.assets(now_us);
 }
 
 std::optional<ObservationStatus> ServerRuntime::observation_status() const { return telemetry_.observation_status(); }

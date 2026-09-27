@@ -1,5 +1,6 @@
 #pragma once
 
+#include "c2/asset_registry.hpp"
 #include "c2/attack_command_service.hpp"
 #include "c2/connection_monitor.hpp"
 #include "c2/effector_command_service.hpp"
@@ -30,6 +31,7 @@ struct ServerRuntimeConfig {
     std::uint32_t emergency_stop_repetitions{3};
     std::uint64_t command_ack_timeout_us{200'000};
     std::uint32_t command_max_attempts{3};
+    AssetRegistryConfig registry;
 };
 
 struct CommandRetryResult {
@@ -58,6 +60,9 @@ public:
 
     [[nodiscard]] InboundResult ingest(
         std::span<const std::byte> datagram, std::uint64_t received_at_us);
+    [[nodiscard]] InboundResult ingest(
+        std::span<const std::byte> datagram, const Endpoint& source,
+        std::uint64_t received_at_us);
     [[nodiscard]] ObservationDispatchResult command_observation(
         ObservationTurretCommandType type, float pan_deg, float tilt_deg,
         std::uint64_t now_us);
@@ -73,6 +78,7 @@ public:
     [[nodiscard]] ConnectionState connection_state(
         ComponentId source, std::uint64_t now_us);
     [[nodiscard]] std::vector<TargetCoordinate> targets(std::uint64_t now_us) const;
+    [[nodiscard]] std::vector<AssetSnapshot> assets(std::uint64_t now_us);
     [[nodiscard]] std::optional<ObservationStatus> observation_status() const;
     [[nodiscard]] std::optional<EffectorStatus> effector_status() const;
     [[nodiscard]] std::optional<CommandAck> acknowledgement(
@@ -94,6 +100,7 @@ private:
 
     ServerRuntimeConfig config_;
     DatagramSender sender_;
+    AssetRegistry registry_;
     StateStore state_;
     TelemetryStore telemetry_;
     ConnectionMonitor connections_;
