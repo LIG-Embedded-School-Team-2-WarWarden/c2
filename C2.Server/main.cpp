@@ -25,6 +25,7 @@ struct Options {
     std::uint16_t effector_status_port{6002};
     std::uint64_t target_validity_ms{2'000};
     std::size_t maximum_targets{256};
+    std::uint64_t heartbeat_interval_ms{1'000};
     std::uint64_t heartbeat_timeout_ms{3'000};
     std::uint64_t command_validity_ms{500};
     std::uint64_t acknowledgement_timeout_ms{200};
@@ -55,6 +56,14 @@ Value positive_number(const std::string_view text, const char* name) {
     return value;
 }
 
+std::uint64_t interval_ms(const std::string_view text, const char* name) {
+    const auto value = positive_number<std::uint64_t>(text, name);
+    if (value > static_cast<std::uint64_t>(
+                    std::numeric_limits<std::chrono::milliseconds::rep>::max()))
+        throw std::invalid_argument(std::string{name} + " is too large");
+    return value;
+}
+
 std::uint64_t microseconds(const std::uint64_t milliseconds) {
     if (milliseconds > std::numeric_limits<std::uint64_t>::max() / 1000U)
         throw std::invalid_argument("millisecond value is too large");
@@ -77,6 +86,7 @@ Options parse_options(const int argc, char* argv[]) {
         else if (name == "--effector-status-port") options.effector_status_port = port(value);
         else if (name == "--target-validity-ms") options.target_validity_ms = positive_number<std::uint64_t>(value, "target validity");
         else if (name == "--max-targets") options.maximum_targets = positive_number<std::size_t>(value, "maximum target count");
+        else if (name == "--heartbeat-interval-ms") options.heartbeat_interval_ms = interval_ms(value, "heartbeat interval");
         else if (name == "--heartbeat-timeout-ms") options.heartbeat_timeout_ms = positive_number<std::uint64_t>(value, "heartbeat timeout");
         else if (name == "--command-validity-ms") options.command_validity_ms = positive_number<std::uint64_t>(value, "command validity");
         else if (name == "--ack-timeout-ms") options.acknowledgement_timeout_ms = positive_number<std::uint64_t>(value, "acknowledgement timeout");
@@ -137,21 +147,23 @@ int main(int argc, char* argv[]) {
 
         const auto started_at = std::chrono::steady_clock::now();
         std::jthread heartbeat_worker([&](const std::stop_token stop) {
-            std::uint32_t tick{};
+            auto next_heartbeat = std::chrono::steady_clock::now();
             while (!stop.stop_requested()) {
                 const auto now = now_us();
-                if (tick % 10 == 0) {
+                const auto steady_now = std::chrono::steady_clock::now();
+                if (steady_now >= next_heartbeat) {
                     const auto uptime_ms = static_cast<std::uint64_t>(
                         std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now() - started_at).count());
+                            steady_now - started_at).count());
                     runtime.send_heartbeats(now, uptime_ms);
+                    next_heartbeat = steady_now +
+                        std::chrono::milliseconds(options.heartbeat_interval_ms);
                 }
                 const auto retries = runtime.retry_unacknowledged(now);
                 if (retries.exhausted != 0)
                     std::cerr << "command acknowledgement retry exhausted: "
                               << retries.exhausted << '\n';
-                ++tick;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         });
 

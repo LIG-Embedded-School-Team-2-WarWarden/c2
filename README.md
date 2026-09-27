@@ -62,6 +62,7 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드 및 전체 테�
 |---|---:|---|
 | `--target-validity-ms` | 2000 | 표적 좌표 유효시간 |
 | `--max-targets` | 256 | 동시에 보관할 표적 수 |
+| `--heartbeat-interval-ms` | 1000 | C2 Heartbeat 송신주기 |
 | `--heartbeat-timeout-ms` | 3000 | 자산 통신 단절 판단시간 |
 | `--command-validity-ms` | 500 | 생성 명령의 유효시간 |
 | `--ack-timeout-ms` | 200 | 명령 재전송 전 ACK 대기시간 |
@@ -104,8 +105,9 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드 및 전체 테�
 ```
 
 분리 장비에서 실행할 때 더미 자산은 `--bind`, `--listen-port`, `--c2-ip`,
-`--status-port`, `--watchdog-timeout-ms`를 지원한다. 관측 더미는 추가로
-`--target-port`를 지원한다.
+`--status-port`, `--status-interval-ms`, `--heartbeat-interval-ms`,
+`--watchdog-timeout-ms`를 지원한다. 관측 더미는 추가로 `--target-port`와
+`--target-interval-ms`를 지원한다.
 
 ```powershell
 .\x64\Release\Dummy.Observation.exe --c2-ip 192.168.10.20 --listen-port 5101

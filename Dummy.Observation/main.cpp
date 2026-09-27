@@ -20,6 +20,9 @@ struct Options {
     std::uint16_t listen_port{5101};
     std::uint16_t status_port{5001};
     std::uint16_t target_port{5002};
+    std::uint64_t status_interval_ms{100};
+    std::uint64_t heartbeat_interval_ms{1'000};
+    std::uint64_t target_interval_ms{1'000};
     std::uint64_t watchdog_timeout_ms{3'000};
 };
 
@@ -29,6 +32,14 @@ Value positive_number(const std::string_view text, const char* name) {
     const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
     if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || value == 0)
         throw std::invalid_argument(std::string{"invalid "} + name);
+    return value;
+}
+
+std::uint64_t interval_ms(const std::string_view text, const char* name) {
+    const auto value = positive_number<std::uint64_t>(text, name);
+    if (value > static_cast<std::uint64_t>(
+                    std::numeric_limits<std::chrono::milliseconds::rep>::max()))
+        throw std::invalid_argument(std::string{name} + " is too large");
     return value;
 }
 
@@ -50,6 +61,12 @@ Options parse_options(const int argc, char* argv[]) {
         else if (name == "--c2-ip") options.c2_address = value;
         else if (name == "--status-port") options.status_port = port(value);
         else if (name == "--target-port") options.target_port = port(value);
+        else if (name == "--status-interval-ms")
+            options.status_interval_ms = interval_ms(value, "status interval");
+        else if (name == "--heartbeat-interval-ms")
+            options.heartbeat_interval_ms = interval_ms(value, "heartbeat interval");
+        else if (name == "--target-interval-ms")
+            options.target_interval_ms = interval_ms(value, "target interval");
         else if (name == "--watchdog-timeout-ms")
             options.watchdog_timeout_ms = positive_number<std::uint64_t>(value, "watchdog timeout");
         else throw std::invalid_argument("unknown option: " + std::string{name});
@@ -103,23 +120,35 @@ int main(int argc, char* argv[]) {
         transport.start();
         const auto started = std::chrono::steady_clock::now();
         std::jthread publisher([&](const std::stop_token stop) {
-            std::uint32_t tick{};
+            auto next_status = std::chrono::steady_clock::now();
+            auto next_heartbeat = next_status;
+            auto next_target = next_status;
             while (!stop.stop_requested()) {
                 const auto now = now_us();
+                const auto steady_now = std::chrono::steady_clock::now();
                 const auto uptime = static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - started).count());
+                        steady_now - started).count());
                 if (const auto report = asset.check_watchdog(
                         now, options.watchdog_timeout_ms * 1000U))
                     send(transport, *report, status_endpoint);
-                send(transport, asset.status(now), status_endpoint);
-                if (tick % 10 == 0) {
+                if (steady_now >= next_status) {
+                    send(transport, asset.status(now), status_endpoint);
+                    next_status = steady_now +
+                        std::chrono::milliseconds(options.status_interval_ms);
+                }
+                if (steady_now >= next_heartbeat) {
                     send(transport, asset.asset_pose(now), status_endpoint);
                     send(transport, asset.heartbeat(now, uptime), status_endpoint);
-                    send(transport, asset.target(1, 100, 20, 10, 0.95F, now), target_endpoint);
+                    next_heartbeat = steady_now +
+                        std::chrono::milliseconds(options.heartbeat_interval_ms);
                 }
-                ++tick;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                if (steady_now >= next_target) {
+                    send(transport, asset.target(1, 100, 20, 10, 0.95F, now), target_endpoint);
+                    next_target = steady_now +
+                        std::chrono::milliseconds(options.target_interval_ms);
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         });
         std::cout << "Dummy observation asset started on UDP " << options.listen_port
