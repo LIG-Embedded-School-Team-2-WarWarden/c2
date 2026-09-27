@@ -56,6 +56,18 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드 및 전체 테�
 `--observation-status-port`, `--target-port`, `--observation-command-port`,
 `--effector-command-port`, `--effector-status-port` 옵션으로 변경할 수 있다.
 
+시연 운용값도 재컴파일 없이 변경할 수 있다.
+
+| 옵션 | 기본값 | 의미 |
+|---|---:|---|
+| `--target-validity-ms` | 2000 | 표적 좌표 유효시간 |
+| `--max-targets` | 256 | 동시에 보관할 표적 수 |
+| `--heartbeat-timeout-ms` | 3000 | 자산 통신 단절 판단시간 |
+| `--command-validity-ms` | 500 | 생성 명령의 유효시간 |
+| `--ack-timeout-ms` | 200 | 명령 재전송 전 ACK 대기시간 |
+| `--command-attempts` | 3 | 최초 전송을 포함한 최대 명령 시도 횟수 |
+| `--emergency-stop-repetitions` | 3 | 비상정지 즉시 반복 횟수 |
+
 ## 콘솔 명령
 
 | 명령 | 의미 |

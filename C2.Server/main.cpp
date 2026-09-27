@@ -3,6 +3,7 @@
 #include <atomic>
 #include <charconv>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -22,6 +23,13 @@ struct Options {
     std::uint16_t observation_command_port{5101};
     std::uint16_t effector_command_port{6001};
     std::uint16_t effector_status_port{6002};
+    std::uint64_t target_validity_ms{2'000};
+    std::size_t maximum_targets{256};
+    std::uint64_t heartbeat_timeout_ms{3'000};
+    std::uint64_t command_validity_ms{500};
+    std::uint64_t acknowledgement_timeout_ms{200};
+    std::uint32_t command_attempts{3};
+    std::uint32_t emergency_stop_repetitions{3};
 };
 
 std::uint64_t now_us() {
@@ -38,6 +46,21 @@ std::uint16_t port(std::string_view text) {
     return static_cast<std::uint16_t>(value);
 }
 
+template <typename Value>
+Value positive_number(const std::string_view text, const char* name) {
+    Value value{};
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || value == 0)
+        throw std::invalid_argument(std::string{"invalid "} + name);
+    return value;
+}
+
+std::uint64_t microseconds(const std::uint64_t milliseconds) {
+    if (milliseconds > std::numeric_limits<std::uint64_t>::max() / 1000U)
+        throw std::invalid_argument("millisecond value is too large");
+    return milliseconds * 1000U;
+}
+
 Options parse_options(const int argc, char* argv[]) {
     Options options;
     for (int index = 1; index < argc; index += 2) {
@@ -52,6 +75,13 @@ Options parse_options(const int argc, char* argv[]) {
         else if (name == "--observation-command-port") options.observation_command_port = port(value);
         else if (name == "--effector-command-port") options.effector_command_port = port(value);
         else if (name == "--effector-status-port") options.effector_status_port = port(value);
+        else if (name == "--target-validity-ms") options.target_validity_ms = positive_number<std::uint64_t>(value, "target validity");
+        else if (name == "--max-targets") options.maximum_targets = positive_number<std::size_t>(value, "maximum target count");
+        else if (name == "--heartbeat-timeout-ms") options.heartbeat_timeout_ms = positive_number<std::uint64_t>(value, "heartbeat timeout");
+        else if (name == "--command-validity-ms") options.command_validity_ms = positive_number<std::uint64_t>(value, "command validity");
+        else if (name == "--ack-timeout-ms") options.acknowledgement_timeout_ms = positive_number<std::uint64_t>(value, "acknowledgement timeout");
+        else if (name == "--command-attempts") options.command_attempts = positive_number<std::uint32_t>(value, "command attempts");
+        else if (name == "--emergency-stop-repetitions") options.emergency_stop_repetitions = positive_number<std::uint32_t>(value, "emergency stop repetitions");
         else throw std::invalid_argument("unknown option: " + std::string{name});
     }
     return options;
@@ -81,12 +111,16 @@ int main(int argc, char* argv[]) {
         sender.start();
 
         c2::ServerRuntime runtime(
-            {{2'000'000, 256}, {3'000'000},
-             {{-180, 180, -90, 90}, 500'000, 1, 1},
-             {{-180, 180, -90, 90}, 500'000, 1, 1},
-             {500'000, 1, 1},
+            {{microseconds(options.target_validity_ms), options.maximum_targets},
+             {microseconds(options.heartbeat_timeout_ms)},
+             {{-180, 180, -90, 90}, microseconds(options.command_validity_ms), 1, 1},
+             {{-180, 180, -90, 90}, microseconds(options.command_validity_ms), 1, 1},
+             {microseconds(options.command_validity_ms), 1, 1},
              {options.observation_address, options.observation_command_port},
-             {options.effector_address, options.effector_command_port}},
+             {options.effector_address, options.effector_command_port},
+             options.emergency_stop_repetitions,
+             microseconds(options.acknowledgement_timeout_ms),
+             options.command_attempts},
             [&](const auto bytes, const auto& endpoint) { sender.send(bytes, endpoint); });
 
         const auto receive = [&](std::vector<std::byte> data, c2::Endpoint) {
