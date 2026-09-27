@@ -103,6 +103,15 @@ timeout, 장비 한계 및 주소는 현재 ICD의 TBD 항목이므로 런타임
 .\x64\Release\C2.Server.exe
 ```
 
+분리 장비에서 실행할 때 더미 자산은 `--bind`, `--listen-port`, `--c2-ip`,
+`--status-port`, `--watchdog-timeout-ms`를 지원한다. 관측 더미는 추가로
+`--target-port`를 지원한다.
+
+```powershell
+.\x64\Release\Dummy.Observation.exe --c2-ip 192.168.10.20 --listen-port 5101
+.\x64\Release\Dummy.Effector.exe --c2-ip 192.168.10.20 --listen-port 6001
+```
+
 서버에서 `scan 10 5`, `point 1`, `arm 1`, `start 1 100`을 차례대로 입력하면
 탐색부터 타격 동작 종료까지 로컬 UDP 전체 흐름을 확인할 수 있다. 더미 관측 자산은
 1번 표적의 PROJECT_FRAME 좌표를 생성하며, 두 더미 자산은 `quit`으로 종료한다.
