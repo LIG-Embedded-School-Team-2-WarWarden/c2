@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "c2/asset_assignment.hpp"
 #include "c2/protobuf_codec.hpp"
 #include "c2/server_runtime.hpp"
 
@@ -54,6 +55,25 @@ c2::Heartbeat heartbeat(const c2::AssetRegistration& asset, std::uint32_t sequen
              asset.header.source_id, c2::ComponentId::command_and_control,
              asset.header.asset_id, asset.header.session_id},
             c2::AssetOperatingState::operating, sequence, 10 + sequence};
+}
+
+c2::AssetPose pose(
+    const c2::AssetRegistration& asset, std::uint32_t sequence,
+    float x_m, float y_m = 0, float z_m = 0) {
+    return {{c2::protocol_version, sequence, 10 + sequence,
+             asset.header.source_id, c2::ComponentId::command_and_control,
+             asset.header.asset_id, asset.header.session_id},
+            c2::CoordinateFrame::project_frame, x_m, y_m, z_m, 0};
+}
+
+c2::EffectorStatus effector_status(
+    const c2::AssetRegistration& asset, std::uint32_t sequence,
+    c2::EffectorState state = c2::EffectorState::ready) {
+    return {{c2::protocol_version, sequence, 10 + sequence,
+             c2::ComponentId::effector_asset,
+             c2::ComponentId::command_and_control,
+             asset.header.asset_id, asset.header.session_id},
+            state, 0, 0, 0, 0, true, false, false, 0, 10 + sequence};
 }
 
 TEST(ServerRuntimeTest, IngestsHeartbeatPoseTargetAndEffectorStatus) {
@@ -442,5 +462,86 @@ TEST(ServerRuntimeRegistrationTest, NewSessionEndsPreviousSessionPendingCommands
     ASSERT_EQ(server.ingest(bytes(new_session), {"10.10.0.8", 40'002}, 104),
               c2::InboundResult::accepted);
     EXPECT_EQ(server.pending_command_count(), 0U);
+}
+
+TEST(ServerRuntimeAssignmentTest, AssignsNearestEffectorAndReassignsAfterHeartbeatTimeout) {
+    auto runtime_config = config();
+    runtime_config.registry = {8, 1'000, 10'000, 1'000};
+    runtime_config.assignments.required_capabilities =
+        c2::capability::effector_point | c2::capability::effector_attack;
+    c2::ServerRuntime server(runtime_config, [](auto, auto) {});
+    const c2::Endpoint observer_source{"10.10.0.1", 40'001};
+    const c2::Endpoint near_source{"10.10.0.2", 40'002};
+    const c2::Endpoint far_source{"10.10.0.3", 40'003};
+    const auto observer = registration(101, 1, c2::AssetRole::observation, 51'101);
+    const auto near_effector = registration(201, 1, c2::AssetRole::effector, 60'201);
+    const auto far_effector = registration(202, 1, c2::AssetRole::effector, 60'202);
+    ASSERT_EQ(server.ingest(bytes(observer), observer_source, 100), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(near_effector), near_source, 100), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(far_effector), far_source, 100), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(near_effector, 2)), near_source, 101), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(far_effector, 2)), far_source, 101), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(pose(near_effector, 3, 0)), near_source, 102), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(pose(far_effector, 3, 100)), far_source, 102), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(effector_status(near_effector, 4)), near_source, 103), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(effector_status(far_effector, 4)), far_source, 103), c2::InboundResult::accepted);
+    c2::TargetCoordinate target{
+        {c2::protocol_version, 2, 104, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 1},
+        7, 104, c2::CoordinateFrame::project_frame, 10, 0, 0, 0.9F};
+    ASSERT_EQ(server.ingest(bytes(target), observer_source, 104), c2::InboundResult::accepted);
+
+    const auto decision = server.assign(1, 105);
+    ASSERT_EQ(decision.result, c2::AssignmentResult::assigned);
+    ASSERT_TRUE(decision.assignment.has_value());
+    EXPECT_EQ(decision.assignment->effector_asset_id, 201U);
+    EXPECT_FALSE(decision.assignment->manually_selected);
+    EXPECT_EQ(server.assignment(1)->effector_asset_id, 201U);
+
+    ASSERT_EQ(server.ingest(bytes(heartbeat(far_effector, 5)), far_source, 1'101),
+              c2::InboundResult::accepted);
+    const auto reassigned = server.assign(1, 1'102);
+    ASSERT_EQ(reassigned.result, c2::AssignmentResult::assigned);
+    ASSERT_TRUE(reassigned.assignment.has_value());
+    EXPECT_EQ(reassigned.assignment->effector_asset_id, 202U);
+}
+
+TEST(ServerRuntimeAssignmentTest, RejectsUnsafeManualChoiceAndMarksUnregisteredAssignmentLost) {
+    auto runtime_config = config();
+    runtime_config.registry = {8, 1'000, 10'000, 1'000};
+    c2::ServerRuntime server(runtime_config, [](auto, auto) {});
+    const c2::Endpoint observer_source{"10.10.0.1", 40'001};
+    const c2::Endpoint healthy_source{"10.10.0.2", 40'002};
+    const c2::Endpoint faulted_source{"10.10.0.3", 40'003};
+    const auto observer = registration(101, 1, c2::AssetRole::observation, 51'101);
+    const auto healthy = registration(201, 1, c2::AssetRole::effector, 60'201);
+    const auto faulted = registration(202, 1, c2::AssetRole::effector, 60'202);
+    for (const auto& item : std::vector<std::pair<c2::AssetRegistration, c2::Endpoint>>{
+             {observer, observer_source}, {healthy, healthy_source}, {faulted, faulted_source}})
+        ASSERT_EQ(server.ingest(bytes(item.first), item.second, 100), c2::InboundResult::accepted);
+    for (const auto& item : std::vector<std::pair<c2::AssetRegistration, c2::Endpoint>>{
+             {healthy, healthy_source}, {faulted, faulted_source}}) {
+        ASSERT_EQ(server.ingest(bytes(heartbeat(item.first, 2)), item.second, 101), c2::InboundResult::accepted);
+        ASSERT_EQ(server.ingest(bytes(pose(item.first, 3, 0)), item.second, 102), c2::InboundResult::accepted);
+    }
+    ASSERT_EQ(server.ingest(bytes(effector_status(healthy, 4)), healthy_source, 103), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(effector_status(faulted, 4, c2::EffectorState::fault)), faulted_source, 103), c2::InboundResult::accepted);
+    c2::TargetCoordinate target{
+        {c2::protocol_version, 2, 104, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 1},
+        7, 104, c2::CoordinateFrame::project_frame, 10, 0, 0, 0.9F};
+    ASSERT_EQ(server.ingest(bytes(target), observer_source, 104), c2::InboundResult::accepted);
+
+    EXPECT_EQ(server.assign(1, 202, 105).result,
+              c2::AssignmentResult::temporarily_unavailable);
+    ASSERT_EQ(server.assign(1, 201, 105).result, c2::AssignmentResult::assigned);
+    c2::AssetUnregister unregister{
+        {c2::protocol_version, 5, 106, c2::ComponentId::effector_asset,
+         c2::ComponentId::command_and_control, 201, 1},
+        "operator shutdown"};
+    ASSERT_EQ(server.ingest(bytes(unregister), healthy_source, 106),
+              c2::InboundResult::accepted);
+    ASSERT_TRUE(server.assignment(1).has_value());
+    EXPECT_EQ(server.assignment(1)->state, c2::AssignmentResult::assignment_lost);
 }
 }  // namespace
