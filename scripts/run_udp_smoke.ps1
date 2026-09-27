@@ -17,9 +17,15 @@ function Find-Executable {
 }
 
 function Start-RedirectedProcess {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [string[]]$ArgumentList = @()
+    )
     $info = [System.Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $Path
+    foreach ($argument in $ArgumentList) {
+        $null = $info.ArgumentList.Add($argument)
+    }
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
     $info.RedirectStandardInput = $true
@@ -28,15 +34,57 @@ function Start-RedirectedProcess {
     return [System.Diagnostics.Process]::Start($info)
 }
 
+function Assert-InvalidConfiguration {
+    param(
+        [string]$Path,
+        [string[]]$ArgumentList,
+        [string]$ExpectedError
+    )
+    $process = Start-RedirectedProcess $Path $ArgumentList
+    try {
+        if (-not $process.WaitForExit(5000)) {
+            throw "Invalid-configuration process did not exit: $Path"
+        }
+        $errorOutput = $process.StandardError.ReadToEnd()
+        if ($process.ExitCode -eq 0 -or $errorOutput -notmatch [regex]::Escape($ExpectedError)) {
+            throw "Expected configuration error '${ExpectedError}'. Exit=$($process.ExitCode), stderr=${errorOutput}"
+        }
+    } finally {
+        if (-not $process.HasExited) { $process.Kill($true) }
+        $process.Dispose()
+    }
+}
+
 $serverPath = Find-Executable @('c2_server.exe', 'C2.Server.exe')
 $observationPath = Find-Executable @('dummy_observation.exe', 'Dummy.Observation.exe')
 $effectorPath = Find-Executable @('dummy_effector.exe', 'Dummy.Effector.exe')
 $processes = @()
 
 try {
-    $server = Start-RedirectedProcess $serverPath
-    $observation = Start-RedirectedProcess $observationPath
-    $effector = Start-RedirectedProcess $effectorPath
+    $server = Start-RedirectedProcess $serverPath @(
+        '--observation-status-port', '15001',
+        '--target-port', '15002',
+        '--observation-command-port', '15101',
+        '--effector-command-port', '16001',
+        '--effector-status-port', '16002',
+        '--target-validity-ms', '3000',
+        '--heartbeat-timeout-ms', '4000',
+        '--command-validity-ms', '700',
+        '--ack-timeout-ms', '300',
+        '--command-attempts', '4',
+        '--emergency-stop-repetitions', '4'
+    )
+    $observation = Start-RedirectedProcess $observationPath @(
+        '--listen-port', '15101',
+        '--status-port', '15001',
+        '--target-port', '15002',
+        '--watchdog-timeout-ms', '4000'
+    )
+    $effector = Start-RedirectedProcess $effectorPath @(
+        '--listen-port', '16001',
+        '--status-port', '16002',
+        '--watchdog-timeout-ms', '4000'
+    )
     $processes = @($server, $observation, $effector)
 
     Start-Sleep -Seconds 2
@@ -76,7 +124,10 @@ try {
             throw "Process failed with exit code $($process.ExitCode): $($process.StartInfo.FileName)"
         }
     }
-    Write-Host 'UDP process smoke test passed: six commands, connected assets, no pending ACK.'
+    Assert-InvalidConfiguration $serverPath @('--command-attempts', '0') 'invalid command attempts'
+    Assert-InvalidConfiguration $observationPath @('--listen-port', '0') 'invalid UDP port'
+    Assert-InvalidConfiguration $effectorPath @('--watchdog-timeout-ms', '0') 'invalid watchdog timeout'
+    Write-Host 'UDP process smoke test passed: runtime ports and timing, six commands, connected assets, no pending ACK, invalid options rejected.'
 } finally {
     foreach ($process in $processes) {
         if ($null -ne $process -and -not $process.HasExited) {
