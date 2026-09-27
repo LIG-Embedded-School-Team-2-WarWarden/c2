@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package mfs.icd.v1;
+package mfs.icd.v2;
 
 enum ComponentId {
   COMPONENT_ID_UNSPECIFIED = 0;
@@ -80,12 +80,27 @@ enum ErrorSeverity {
   ERROR_SEVERITY_CRITICAL = 4;
 }
 
+enum AssetRole {
+  ASSET_ROLE_UNSPECIFIED = 0;
+  ASSET_ROLE_OBSERVATION = 1;
+  ASSET_ROLE_EFFECTOR = 2;
+}
+
 message MessageHeader {
   uint32 protocol_version = 1;
   uint32 sequence = 2;
   uint64 timestamp_us = 3;
   ComponentId source_id = 4;
   ComponentId destination_id = 5;
+  uint64 asset_id = 6;
+  uint64 session_id = 7;
+}
+
+message PanTiltLimits {
+  float minimum_pan_deg = 1;
+  float maximum_pan_deg = 2;
+  float minimum_tilt_deg = 3;
+  float maximum_tilt_deg = 4;
 }
 
 // Both assets publish their installation pose in the common PROJECT_FRAME.
@@ -193,6 +208,23 @@ message ErrorReport {
   string detail = 6;
 }
 
+message AssetRegistration {
+  MessageHeader header = 1;
+  AssetRole role = 2;
+  uint32 command_port = 3;
+  uint64 capabilities = 4;
+  string software_version = 5;
+  string hardware_version = 6;
+  PanTiltLimits turret_limits = 7;
+  bool concurrent_tasks = 8;
+  uint64 lease_duration_ms = 9;
+}
+
+message AssetUnregister {
+  MessageHeader header = 1;
+  string reason = 2;
+}
+
 message Envelope {
   oneof payload {
     AssetPose asset_pose = 1;
@@ -205,5 +237,7 @@ message Envelope {
     CommandAck command_ack = 8;
     Heartbeat heartbeat = 9;
     ErrorReport error_report = 10;
+    AssetRegistration asset_registration = 11;
+    AssetUnregister asset_unregister = 12;
   }
 }

@@ -5,7 +5,7 @@
 #include <variant>
 
 namespace c2 {
-inline constexpr std::uint32_t protocol_version = 1;
+inline constexpr std::uint32_t protocol_version = 2;
 
 enum class ComponentId : std::uint32_t {
     unspecified = 0,
@@ -82,6 +82,18 @@ enum class ErrorSeverity : std::uint32_t {
     critical = 4,
 };
 
+enum class AssetRole : std::uint32_t {
+    unspecified = 0,
+    observation = 1,
+    effector = 2,
+};
+
+namespace capability {
+inline constexpr std::uint64_t observation_scan = 1ULL << 0U;
+inline constexpr std::uint64_t effector_point = 1ULL << 1U;
+inline constexpr std::uint64_t effector_attack = 1ULL << 2U;
+}  // namespace capability
+
 enum class MessageKind : std::uint32_t {
     unspecified = 0,
     asset_pose = 1,
@@ -94,6 +106,8 @@ enum class MessageKind : std::uint32_t {
     command_ack = 8,
     heartbeat = 9,
     error_report = 10,
+    asset_registration = 11,
+    asset_unregister = 12,
 };
 
 struct MessageHeader {
@@ -102,6 +116,15 @@ struct MessageHeader {
     std::uint64_t timestamp_us{};
     ComponentId source_id{ComponentId::unspecified};
     ComponentId destination_id{ComponentId::unspecified};
+    std::uint64_t asset_id{1};
+    std::uint64_t session_id{1};
+};
+
+struct PanTiltLimits {
+    float minimum_pan_deg{};
+    float maximum_pan_deg{};
+    float minimum_tilt_deg{};
+    float maximum_tilt_deg{};
 };
 
 struct AssetPose {
@@ -204,6 +227,23 @@ struct ErrorReport {
     std::string detail;
 };
 
+struct AssetRegistration {
+    MessageHeader header;
+    AssetRole role{AssetRole::unspecified};
+    std::uint32_t command_port{};
+    std::uint64_t capabilities{};
+    std::string software_version;
+    std::string hardware_version;
+    PanTiltLimits turret_limits;
+    bool concurrent_tasks{};
+    std::uint64_t lease_duration_ms{};
+};
+
+struct AssetUnregister {
+    MessageHeader header;
+    std::string reason;
+};
+
 using MessagePayload = std::variant<
     std::monostate,
     AssetPose,
@@ -215,7 +255,9 @@ using MessagePayload = std::variant<
     EffectorStatus,
     CommandAck,
     Heartbeat,
-    ErrorReport>;
+    ErrorReport,
+    AssetRegistration,
+    AssetUnregister>;
 
 struct Envelope {
     MessagePayload payload;

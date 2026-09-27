@@ -37,43 +37,43 @@ std::vector<std::pair<c2::Envelope, std::vector<std::byte>>> golden_packets() {
         {c2::Envelope{c2::AssetPose{header(c2::ComponentId::effector_asset,
                                           c2::ComponentId::command_and_control),
                                    c2::CoordinateFrame::project_frame, 0, 0, 0, 0}},
-         bytes("0A0E0A0A080110011801200328021001")},
+         bytes("0A120A0E08021001180120032802300138011001")},
         {c2::Envelope{c2::TargetCoordinate{
              header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
              1, 1, c2::CoordinateFrame::project_frame, 0, 0, 0, 0}},
-         bytes("12120A0A08011001180120012802100118012001")},
+         bytes("12160A0E0802100118012001280230013801100118012001")},
         {c2::Envelope{c2::ObservationStatus{
              header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
              c2::ObservationState::off, 0, 0, false, false, 0, 1}},
-         bytes("1A100A0A0801100118012001280210014001")},
+         bytes("1A140A0E080210011801200128023001380110014001")},
         {c2::Envelope{c2::ObservationTurretCommand{
              header(c2::ComponentId::command_and_control, c2::ComponentId::observation_asset),
              1, c2::ObservationTurretCommandType::home, 0, 0, 2}},
-         bytes("22120A0A08011001180120022801100118013002")},
+         bytes("22160A0E0802100118012002280130013801100118013002")},
         {c2::Envelope{c2::EffectorTurretCommand{
              header(c2::ComponentId::command_and_control, c2::ComponentId::effector_asset),
              1, 1, 0, 0, 2}},
-         bytes("2A120A0A08011001180120022803100118013002")},
+         bytes("2A160A0E0802100118012002280330013801100118013002")},
         {c2::Envelope{c2::AttackCommand{
              header(c2::ComponentId::command_and_control, c2::ComponentId::effector_asset),
              1, 1, c2::AttackAction::arm, 0, 2}},
-         bytes("32140A0A080110011801200228031001180120013002")},
+         bytes("32180A0E08021001180120022803300138011001180120013002")},
         {c2::Envelope{c2::EffectorStatus{
              header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
              c2::EffectorState::off, 0, 0, 0, 0, false, false, false, 0, 1}},
-         bytes("3A100A0A0801100118012003280210015801")},
+         bytes("3A140A0E080210011801200328023001380110015801")},
         {c2::Envelope{c2::CommandAck{
              header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
              1, c2::CommandResult::received, 0, 1}},
-         bytes("42120A0A08011001180120032802100118012801")},
+         bytes("42160A0E0802100118012003280230013801100118012801")},
         {c2::Envelope{c2::Heartbeat{
              header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
              c2::AssetOperatingState::off, 0, 1}},
-         bytes("4A100A0A0801100118012001280210012001")},
+         bytes("4A140A0E080210011801200128023001380110012001")},
         {c2::Envelope{c2::ErrorReport{
              header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
              1, c2::ErrorSeverity::info, 0, 1, {}}},
-         bytes("52120A0A08011001180120032802100118012801")},
+         bytes("52160A0E0802100118012003280230013801100118012801")},
     };
 }
 
@@ -196,5 +196,71 @@ TEST(ProtobufCodecTest, RejectsEveryTruncatedGoldenPacketWithoutThrowing) {
     expect_decode_error(
         bytes("8080808080808080808002"), c2::protobuf::DecodeError::malformed);
     expect_decode_error(bytes("0A00"), c2::protobuf::DecodeError::invalid_message);
+}
+
+TEST(ProtobufCodecTest, RoundTripsAssetRegistrationAndUnregister) {
+    c2::AssetRegistration registration{
+        {c2::protocol_version, 9, 100, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 7},
+        c2::AssetRole::observation,
+        51'001,
+        c2::capability::observation_scan,
+        "dummy-observation/2.0",
+        "simulator",
+        {-170.0F, 170.0F, -20.0F, 80.0F},
+        false,
+        5'000};
+
+    const auto encoded = c2::protobuf::encode(c2::Envelope{registration});
+    const auto decoded = c2::protobuf::decode(encoded);
+    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+    const auto& actual =
+        std::get<c2::AssetRegistration>(std::get<c2::Envelope>(decoded).payload);
+    EXPECT_EQ(actual.header.asset_id, 101U);
+    EXPECT_EQ(actual.header.session_id, 7U);
+    EXPECT_EQ(actual.command_port, 51'001U);
+    EXPECT_EQ(actual.capabilities, c2::capability::observation_scan);
+    EXPECT_EQ(actual.software_version, "dummy-observation/2.0");
+    EXPECT_FLOAT_EQ(actual.turret_limits.minimum_pan_deg, -170.0F);
+    EXPECT_EQ(c2::protobuf::encode(std::get<c2::Envelope>(decoded)), encoded);
+
+    c2::AssetUnregister unregister{registration.header, "normal shutdown"};
+    const auto unregister_encoded = c2::protobuf::encode(c2::Envelope{unregister});
+    const auto unregister_decoded = c2::protobuf::decode(unregister_encoded);
+    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(unregister_decoded));
+    EXPECT_EQ(
+        std::get<c2::AssetUnregister>(
+            std::get<c2::Envelope>(unregister_decoded).payload).reason,
+        "normal shutdown");
+}
+
+TEST(ProtobufCodecTest, RejectsRegistrationWithoutIdentityOrWithInvalidContract) {
+    c2::AssetRegistration registration{
+        {c2::protocol_version, 1, 1, c2::ComponentId::effector_asset,
+         c2::ComponentId::command_and_control, 201, 8},
+        c2::AssetRole::effector,
+        60'001,
+        c2::capability::effector_attack,
+        "dummy-effector/2.0",
+        {},
+        {-180.0F, 180.0F, -45.0F, 45.0F},
+        false,
+        5'000};
+
+    registration.header.asset_id = 0;
+    EXPECT_THROW(
+        (void)c2::protobuf::encode(c2::Envelope{registration}), std::invalid_argument);
+    registration.header.asset_id = 201;
+    registration.header.session_id = 0;
+    EXPECT_THROW(
+        (void)c2::protobuf::encode(c2::Envelope{registration}), std::invalid_argument);
+    registration.header.session_id = 8;
+    registration.command_port = 0;
+    EXPECT_THROW(
+        (void)c2::protobuf::encode(c2::Envelope{registration}), std::invalid_argument);
+    registration.command_port = 60'001;
+    registration.role = c2::AssetRole::observation;
+    EXPECT_THROW(
+        (void)c2::protobuf::encode(c2::Envelope{registration}), std::invalid_argument);
 }
 }  // namespace

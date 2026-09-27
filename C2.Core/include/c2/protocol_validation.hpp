@@ -32,5 +32,7 @@ struct ObservationTurretLimits {
 [[nodiscard]] ValidationResult validate(const CommandAck& acknowledgement);
 [[nodiscard]] ValidationResult validate(const Heartbeat& heartbeat);
 [[nodiscard]] ValidationResult validate(const ErrorReport& report);
+[[nodiscard]] ValidationResult validate(const AssetRegistration& registration);
+[[nodiscard]] ValidationResult validate(const AssetUnregister& unregister_message);
 [[nodiscard]] ValidationResult validate(const Envelope& envelope);
 }  // namespace c2

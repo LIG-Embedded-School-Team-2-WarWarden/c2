@@ -117,6 +117,10 @@ bool supported(const ErrorSeverity severity) noexcept {
     }
 }
 
+bool supported(const AssetRole role) noexcept {
+    return role == AssetRole::observation || role == AssetRole::effector;
+}
+
 ValidationResult validate_asset_message_header(
     const MessageHeader& header, const char* message_name) {
     ValidationResult result;
@@ -141,6 +145,8 @@ ValidationResult validate_header(
     if (header.timestamp_us == 0) result.errors.emplace_back("timestamp_us must be non-zero");
     if (header.source_id != expected_source) result.errors.emplace_back("unexpected source_id");
     if (header.destination_id != expected_destination) result.errors.emplace_back("unexpected destination_id");
+    if (header.asset_id == 0) result.errors.emplace_back("asset_id must be non-zero");
+    if (header.session_id == 0) result.errors.emplace_back("session_id must be non-zero");
     return result;
 }
 
@@ -302,6 +308,38 @@ ValidationResult validate(const ErrorReport& report) {
     if (report.timestamp_us == 0)
         result.errors.emplace_back("error timestamp_us must be non-zero");
     return result;
+}
+
+ValidationResult validate(const AssetRegistration& registration) {
+    ValidationResult result = validate_asset_message_header(
+        registration.header, "AssetRegistration");
+    if (!supported(registration.role))
+        result.errors.emplace_back("unsupported asset role");
+    const auto expected_source = registration.role == AssetRole::observation
+        ? ComponentId::observation_asset
+        : ComponentId::effector_asset;
+    if (supported(registration.role) && registration.header.source_id != expected_source)
+        result.errors.emplace_back("asset role does not match source_id");
+    if (registration.command_port == 0 || registration.command_port > 65'535)
+        result.errors.emplace_back("command_port must be in [1, 65535]");
+    if (registration.capabilities == 0)
+        result.errors.emplace_back("capabilities must be non-zero");
+    if (registration.software_version.empty() && registration.hardware_version.empty())
+        result.errors.emplace_back("software or hardware version must be provided");
+    const auto& limits = registration.turret_limits;
+    if (!finite(limits.minimum_pan_deg) || !finite(limits.maximum_pan_deg) ||
+        !finite(limits.minimum_tilt_deg) || !finite(limits.maximum_tilt_deg) ||
+        limits.minimum_pan_deg > limits.maximum_pan_deg ||
+        limits.minimum_tilt_deg > limits.maximum_tilt_deg)
+        result.errors.emplace_back("turret limits are invalid");
+    if (registration.lease_duration_ms == 0)
+        result.errors.emplace_back("lease_duration_ms must be non-zero");
+    return result;
+}
+
+ValidationResult validate(const AssetUnregister& unregister_message) {
+    return validate_asset_message_header(
+        unregister_message.header, "AssetUnregister");
 }
 
 ValidationResult validate(const Envelope& envelope) {
