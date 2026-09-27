@@ -40,6 +40,16 @@ c2::AssetPose pose(const c2::AssetRegistration& value, const float x) {
              value.header.session_id},
             c2::CoordinateFrame::project_frame, x, 0, 0, 0};
 }
+
+c2::EffectorStatus effector_status(
+    const c2::AssetRegistration& value, const std::uint32_t sequence,
+    const std::uint64_t timestamp, const c2::EffectorState state = c2::EffectorState::ready) {
+    return {{c2::protocol_version, sequence, timestamp,
+             c2::ComponentId::effector_asset,
+             c2::ComponentId::command_and_control,
+             value.header.asset_id, value.header.session_id},
+            state, 0, 0, 0, 0, false, false, false, 0, timestamp};
+}
 }  // namespace
 
 TEST(AssetRegistryTest, RegistersMultipleRolesAndReturnsDeterministicLists) {
@@ -219,4 +229,62 @@ TEST(AssetRegistryTest, SerializesConcurrentRegistrationsWithoutLosingAssets) {
     ASSERT_EQ(snapshots.size(), count);
     for (std::size_t index = 0; index < count; ++index)
         EXPECT_EQ(snapshots[index].asset_id, index + 1);
+}
+
+TEST(AssetRegistryTest, StoresEffectorStatusIndependentlyAndTracksFreshness) {
+    c2::AssetRegistry registry({4, 1'000, 10'000, 100});
+    const auto first = registration(10, 1, c2::AssetRole::effector, 60'010, 5'000);
+    const auto second = registration(20, 1, c2::AssetRole::effector, 60'020, 5'000);
+    const c2::Endpoint first_source{"10.0.0.1", 40'010};
+    const c2::Endpoint second_source{"10.0.0.2", 40'020};
+    ASSERT_EQ(registry.register_asset(first, first_source, 100),
+              c2::AssetRegistryResult::registered);
+    ASSERT_EQ(registry.register_asset(second, second_source, 100),
+              c2::AssetRegistryResult::registered);
+
+    EXPECT_EQ(registry.update_effector_status(
+                  effector_status(first, 2, 101), first_source, 101),
+              c2::AssetRegistryResult::stored);
+    EXPECT_EQ(registry.update_effector_status(
+                  effector_status(second, 2, 102, c2::EffectorState::standby),
+                  second_source, 102),
+              c2::AssetRegistryResult::stored);
+    EXPECT_EQ(registry.update_effector_status(
+                  effector_status(first, 2, 101), first_source, 103),
+              c2::AssetRegistryResult::duplicate);
+    EXPECT_EQ(registry.update_effector_status(
+                  effector_status(first, 3, 99), first_source, 104),
+              c2::AssetRegistryResult::stale);
+
+    const auto assets = registry.assets(c2::AssetRole::effector, 150);
+    ASSERT_EQ(assets.size(), 2U);
+    ASSERT_TRUE(assets[0].effector_status.has_value());
+    ASSERT_TRUE(assets[1].effector_status.has_value());
+    EXPECT_EQ(assets[0].effector_status->state, c2::EffectorState::ready);
+    EXPECT_EQ(assets[1].effector_status->state, c2::EffectorState::standby);
+    EXPECT_TRUE(assets[0].status_current);
+    EXPECT_TRUE(assets[1].status_current);
+    EXPECT_FALSE(registry.asset(10, 202)->status_current);
+    EXPECT_TRUE(registry.asset(20, 202)->status_current);
+}
+
+TEST(AssetRegistryTest, SessionReplacementClearsEffectorStatus) {
+    c2::AssetRegistry registry({2, 1'000, 10'000, 100});
+    const auto old_session = registration(10, 1, c2::AssetRole::effector, 60'010, 5'000);
+    const auto new_session = registration(10, 2, c2::AssetRole::effector, 60'011, 5'000);
+    const c2::Endpoint old_source{"10.0.0.1", 40'010};
+    const c2::Endpoint new_source{"10.0.0.1", 40'011};
+    ASSERT_EQ(registry.register_asset(old_session, old_source, 100),
+              c2::AssetRegistryResult::registered);
+    ASSERT_EQ(registry.update_effector_status(
+                  effector_status(old_session, 2, 101), old_source, 101),
+              c2::AssetRegistryResult::stored);
+    ASSERT_EQ(registry.register_asset(new_session, new_source, 102),
+              c2::AssetRegistryResult::session_replaced);
+    ASSERT_TRUE(registry.asset(10, 102).has_value());
+    EXPECT_FALSE(registry.asset(10, 102)->effector_status.has_value());
+    EXPECT_FALSE(registry.asset(10, 102)->status_current);
+    EXPECT_EQ(registry.update_effector_status(
+                  effector_status(old_session, 3, 103), old_source, 103),
+              c2::AssetRegistryResult::session_mismatch);
 }

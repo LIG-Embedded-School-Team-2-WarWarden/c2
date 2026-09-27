@@ -15,6 +15,7 @@ struct AssetRegistryConfig {
     std::size_t maximum_assets{256};
     std::uint64_t heartbeat_timeout_us{3'000'000};
     std::uint64_t retired_retention_us{60'000'000};
+    std::uint64_t status_timeout_us{1'000'000};
 };
 
 enum class AssetRegistryResult {
@@ -58,6 +59,8 @@ struct AssetSnapshot {
     AssetConnectionState connection_state{AssetConnectionState::awaiting_heartbeat};
     bool pose_synchronized{};
     std::optional<AssetPose> pose;
+    std::optional<EffectorStatus> effector_status;
+    bool status_current{};
 };
 
 class AssetRegistry final {
@@ -78,6 +81,10 @@ public:
         std::uint64_t received_at_us);
     [[nodiscard]] AssetRegistryResult update_pose(
         const AssetPose& pose,
+        const Endpoint& source,
+        std::uint64_t received_at_us);
+    [[nodiscard]] AssetRegistryResult update_effector_status(
+        const EffectorStatus& status,
         const Endpoint& source,
         std::uint64_t received_at_us);
     [[nodiscard]] AssetRegistryResult authenticate(
@@ -105,6 +112,8 @@ private:
         std::uint64_t last_heartbeat_received_at_us{};
         std::optional<Heartbeat> heartbeat;
         std::optional<AssetPose> pose;
+        std::optional<EffectorStatus> effector_status;
+        std::uint64_t status_received_at_us{};
         bool active{true};
         AssetConnectionState terminal_state{AssetConnectionState::unregistered};
         std::uint64_t retired_at_us{};
