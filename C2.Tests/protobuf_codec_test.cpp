@@ -37,43 +37,43 @@ std::vector<std::pair<c2::Envelope, std::vector<std::byte>>> golden_packets() {
         {c2::Envelope{c2::AssetPose{header(c2::ComponentId::effector_asset,
                                           c2::ComponentId::command_and_control),
                                    c2::CoordinateFrame::project_frame, 0, 0, 0, 0}},
-         bytes("0A0E0A0A080110011801200328021001")},
+         bytes("0A120A0E08021001180120032802300138011001")},
         {c2::Envelope{c2::TargetCoordinate{
              header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
              1, 1, c2::CoordinateFrame::project_frame, 0, 0, 0, 0}},
-         bytes("12120A0A08011001180120012802100118012001")},
+         bytes("12160A0E0802100118012001280230013801100118012001")},
         {c2::Envelope{c2::ObservationStatus{
              header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
              c2::ObservationState::off, 0, 0, false, false, 0, 1}},
-         bytes("1A100A0A0801100118012001280210014001")},
+         bytes("1A140A0E080210011801200128023001380110014001")},
         {c2::Envelope{c2::ObservationTurretCommand{
              header(c2::ComponentId::command_and_control, c2::ComponentId::observation_asset),
              1, c2::ObservationTurretCommandType::home, 0, 0, 2}},
-         bytes("22120A0A08011001180120022801100118013002")},
+         bytes("22160A0E0802100118012002280130013801100118013002")},
         {c2::Envelope{c2::EffectorTurretCommand{
              header(c2::ComponentId::command_and_control, c2::ComponentId::effector_asset),
              1, 1, 0, 0, 2}},
-         bytes("2A120A0A08011001180120022803100118013002")},
+         bytes("2A160A0E0802100118012002280330013801100118013002")},
         {c2::Envelope{c2::AttackCommand{
              header(c2::ComponentId::command_and_control, c2::ComponentId::effector_asset),
              1, 1, c2::AttackAction::arm, 0, 2}},
-         bytes("32140A0A080110011801200228031001180120013002")},
+         bytes("32180A0E08021001180120022803300138011001180120013002")},
         {c2::Envelope{c2::EffectorStatus{
              header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
              c2::EffectorState::off, 0, 0, 0, 0, false, false, false, 0, 1}},
-         bytes("3A100A0A0801100118012003280210015801")},
+         bytes("3A140A0E080210011801200328023001380110015801")},
         {c2::Envelope{c2::CommandAck{
              header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
              1, c2::CommandResult::received, 0, 1}},
-         bytes("42120A0A08011001180120032802100118012801")},
+         bytes("42160A0E0802100118012003280230013801100118012801")},
         {c2::Envelope{c2::Heartbeat{
              header(c2::ComponentId::observation_asset, c2::ComponentId::command_and_control),
              c2::AssetOperatingState::off, 0, 1}},
-         bytes("4A100A0A0801100118012001280210012001")},
+         bytes("4A140A0E080210011801200128023001380110012001")},
         {c2::Envelope{c2::ErrorReport{
              header(c2::ComponentId::effector_asset, c2::ComponentId::command_and_control),
              1, c2::ErrorSeverity::info, 0, 1, {}}},
-         bytes("52120A0A08011001180120032802100118012801")},
+         bytes("52160A0E0802100118012003280230013801100118012801")},
     };
 }
 

@@ -164,12 +164,16 @@ std::vector<std::byte> encode_header(const MessageHeader& header) {
     put_uint(output, 3, header.timestamp_us);
     put_enum(output, 4, header.source_id);
     put_enum(output, 5, header.destination_id);
+    put_uint(output, 6, header.asset_id);
+    put_uint(output, 7, header.session_id);
     return output;
 }
 
 void reset_header(MessageHeader& header) {
     header = {};
     header.protocol_version_value = 0;
+    header.asset_id = 0;
+    header.session_id = 0;
 }
 
 bool decode_header(const std::span<const std::byte> bytes, MessageHeader& header) {
@@ -180,7 +184,7 @@ bool decode_header(const std::span<const std::byte> bytes, MessageHeader& header
         std::uint8_t type{};
         if (!reader.key(field, type)) return false;
         std::uint64_t value{};
-        if (field >= 1 && field <= 5) {
+        if (field >= 1 && field <= 7) {
             if (type != wire_varint || !reader.varint(value)) return false;
             switch (field) {
                 case 1:
@@ -197,6 +201,12 @@ bool decode_header(const std::span<const std::byte> bytes, MessageHeader& header
                     break;
                 case 5:
                     header.destination_id = static_cast<ComponentId>(value);
+                    break;
+                case 6:
+                    header.asset_id = value;
+                    break;
+                case 7:
+                    header.session_id = value;
                     break;
                 default:
                     break;
@@ -337,6 +347,36 @@ std::vector<std::byte> encode_message(const ErrorReport& message) {
     return output;
 }
 
+std::vector<std::byte> encode_limits(const PanTiltLimits& limits) {
+    std::vector<std::byte> output;
+    put_float(output, 1, limits.minimum_pan_deg);
+    put_float(output, 2, limits.maximum_pan_deg);
+    put_float(output, 3, limits.minimum_tilt_deg);
+    put_float(output, 4, limits.maximum_tilt_deg);
+    return output;
+}
+
+std::vector<std::byte> encode_message(const AssetRegistration& message) {
+    std::vector<std::byte> output;
+    put_header(output, message);
+    put_enum(output, 2, message.role);
+    put_uint(output, 3, message.command_port);
+    put_uint(output, 4, message.capabilities);
+    put_string(output, 5, message.software_version);
+    put_string(output, 6, message.hardware_version);
+    put_message(output, 7, encode_limits(message.turret_limits));
+    put_bool(output, 8, message.concurrent_tasks);
+    put_uint(output, 9, message.lease_duration_ms);
+    return output;
+}
+
+std::vector<std::byte> encode_message(const AssetUnregister& message) {
+    std::vector<std::byte> output;
+    put_header(output, message);
+    put_string(output, 2, message.reason);
+    return output;
+}
+
 template <typename Message, typename Handler>
 bool decode_fields(const std::span<const std::byte> bytes, Message& message, Handler&& handler) {
     reset_header(message.header);
@@ -367,6 +407,33 @@ bool read_float(Reader& reader, const std::uint8_t type, float& value) {
 bool read_string(Reader& reader, const std::uint8_t type, std::string& value) {
     if (type != wire_length_delimited) return reader.fail();
     return reader.string(value);
+}
+
+bool decode_limits(const std::span<const std::byte> bytes, PanTiltLimits& limits) {
+    Reader reader(bytes);
+    while (!reader.done()) {
+        std::uint32_t field{};
+        std::uint8_t type{};
+        if (!reader.key(field, type)) return false;
+        switch (field) {
+            case 1:
+                if (!read_float(reader, type, limits.minimum_pan_deg)) return false;
+                break;
+            case 2:
+                if (!read_float(reader, type, limits.maximum_pan_deg)) return false;
+                break;
+            case 3:
+                if (!read_float(reader, type, limits.minimum_tilt_deg)) return false;
+                break;
+            case 4:
+                if (!read_float(reader, type, limits.maximum_tilt_deg)) return false;
+                break;
+            default:
+                if (!reader.skip(type)) return false;
+                break;
+        }
+    }
+    return true;
 }
 
 bool decode_message(const std::span<const std::byte> bytes, AssetPose& message) {
@@ -650,6 +717,52 @@ bool decode_message(const std::span<const std::byte> bytes, ErrorReport& message
     });
 }
 
+bool decode_message(const std::span<const std::byte> bytes, AssetRegistration& message) {
+    message.role = AssetRole::unspecified;
+    return decode_fields(bytes, message, [](Reader& reader, const std::uint32_t field,
+                                            const std::uint8_t type,
+                                            AssetRegistration& value) {
+        std::uint64_t integer{};
+        std::span<const std::byte> nested;
+        switch (field) {
+            case 2:
+                if (!read_uint(reader, type, integer)) return false;
+                value.role = static_cast<AssetRole>(integer);
+                return true;
+            case 3:
+                if (!read_uint(reader, type, integer)) return false;
+                value.command_port = static_cast<std::uint32_t>(integer);
+                return true;
+            case 4:
+                return read_uint(reader, type, value.capabilities);
+            case 5:
+                return read_string(reader, type, value.software_version);
+            case 6:
+                return read_string(reader, type, value.hardware_version);
+            case 7:
+                if (type != wire_length_delimited || !reader.message(nested)) return false;
+                return decode_limits(nested, value.turret_limits);
+            case 8:
+                if (!read_uint(reader, type, integer)) return false;
+                value.concurrent_tasks = integer != 0;
+                return true;
+            case 9:
+                return read_uint(reader, type, value.lease_duration_ms);
+            default:
+                return false;
+        }
+    });
+}
+
+bool decode_message(const std::span<const std::byte> bytes, AssetUnregister& message) {
+    return decode_fields(bytes, message, [](Reader& reader, const std::uint32_t field,
+                                            const std::uint8_t type,
+                                            AssetUnregister& value) {
+        if (field == 2) return read_string(reader, type, value.reason);
+        return false;
+    });
+}
+
 template <typename Message>
 bool set_payload(const std::span<const std::byte> bytes, Envelope& envelope) {
     Message message;
@@ -683,6 +796,10 @@ bool decode_payload(
             return set_payload<Heartbeat>(bytes, envelope);
         case MessageKind::error_report:
             return set_payload<ErrorReport>(bytes, envelope);
+        case MessageKind::asset_registration:
+            return set_payload<AssetRegistration>(bytes, envelope);
+        case MessageKind::asset_unregister:
+            return set_payload<AssetUnregister>(bytes, envelope);
         case MessageKind::unspecified:
         default:
             return false;
@@ -714,7 +831,7 @@ DecodeResult decode(const std::span<const std::byte> bytes) {
         std::uint8_t type{};
         if (!reader.key(field, type)) return DecodeError::malformed;
         if (field >= static_cast<std::uint32_t>(MessageKind::asset_pose) &&
-            field <= static_cast<std::uint32_t>(MessageKind::error_report)) {
+            field <= static_cast<std::uint32_t>(MessageKind::asset_unregister)) {
             std::span<const std::byte> nested;
             if (type != wire_length_delimited || !reader.message(nested) ||
                 !decode_payload(field, nested, envelope))
