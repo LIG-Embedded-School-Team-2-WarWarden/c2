@@ -237,6 +237,42 @@ ObservationDispatchResult ServerRuntime::command_observation(
 
 EffectorDispatchResult ServerRuntime::point_effector(
     const std::uint64_t target_id, const std::uint64_t now_us) {
+    if (const auto assignment = assignments_.assignment(target_id);
+        assignment && assignment->state == AssignmentResult::assigned) {
+        const auto track = tracks_.track(target_id, now_us);
+        const auto asset = registry_.asset(assignment->effector_asset_id, now_us);
+        if (!track || !asset || asset->session_id != assignment->effector_session_id ||
+            asset->connection_state != AssetConnectionState::connected)
+            return DispatchError::connection_unavailable;
+        if (!asset->pose_synchronized || !asset->pose)
+            return DispatchError::pose_resynchronization_required;
+        const auto solution = calculate_effector_pointing(
+            track->measurement, *asset->pose,
+            {asset->turret_limits.minimum_pan_deg,
+             asset->turret_limits.maximum_pan_deg,
+             asset->turret_limits.minimum_tilt_deg,
+             asset->turret_limits.maximum_tilt_deg});
+        if (!std::holds_alternative<PointingSolution>(solution) || now_us == 0 ||
+            now_us > std::numeric_limits<std::uint64_t>::max() -
+                         config_.effector_commands.command_validity_us)
+            return DispatchError::command_rejected;
+        const auto& pointing = std::get<PointingSolution>(solution);
+        EffectorTurretCommand command{
+            {protocol_version, 1, now_us, ComponentId::command_and_control,
+             ComponentId::effector_asset, asset->asset_id, asset->session_id},
+            1, target_id, pointing.pan_deg, pointing.tilt_deg,
+            now_us + config_.effector_commands.command_validity_us};
+        assign_effector_identity(command);
+        const auto encoded = protobuf::encode(Envelope{command});
+        if (command_tracker_.track({asset->asset_id, asset->session_id,
+                                    command.command_id, encoded,
+                                    asset->command_endpoint, now_us,
+                                    command.valid_until_us}) !=
+            CommandTrackResult::tracked)
+            return DispatchError::command_rejected;
+        sender_(encoded, asset->command_endpoint);
+        return command;
+    }
     if (const auto error = connection_error(ComponentId::effector_asset, now_us))
         return *error;
     const auto result = effector_commands_.create_for_target(target_id, now_us);
