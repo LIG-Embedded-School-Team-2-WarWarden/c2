@@ -48,3 +48,16 @@
   인증이 끝난 메시지는 기존 저장 경로를 재사용해 상태 갱신 규칙의 중복을 피했다.
 - 검증: `MSBuild.exe c2.slnx /m /p:Configuration=Release /p:Platform=x64` 성공,
   `x64\\Release\\C2.Tests.exe` 139/139 통과.
+
+## Cycle 5 — 다중 관측 표적과 전역 track_id
+
+- Red: 두 관측 자산이 같은 `detection_id`를 보내는 경우, 원본 자산·세션 보존,
+  track ID 순서, 갱신·중복·역전, 만료, 전체·관측자별 용량, ID 순환 테스트를 먼저
+  추가했다. `track_store.hpp` 부재로 Release 빌드가 실패했다.
+- Green: 복합 원본 키와 64비트 전역 ID를 사용하는 bounded `TrackStore`를 구현했다.
+  만료 정리와 조회는 mutex 아래 원자적으로 처리하고 외부에는 snapshot만 반환한다.
+- Red/Green 통합: 등록 기반 runtime에서 같은 detection ID 두 개를 수신하는 테스트가
+  `tracks` 설정/API 부재로 실패한 뒤, 인증된 Target만 TrackStore에 반영하도록 연결했다.
+- Refactor: 원본 키 index와 track ID 정렬 map을 분리해 갱신 조회는 유지하면서 반환
+  순서를 결정적으로 만들었다. ID 발급은 0 및 활성 ID를 건너뛴다.
+- 검증: Release 전체 빌드 성공, `x64\\Release\\C2.Tests.exe` 145/145 통과.

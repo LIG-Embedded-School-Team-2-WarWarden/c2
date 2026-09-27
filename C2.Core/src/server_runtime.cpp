@@ -18,6 +18,7 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
     : config_(std::move(config)),
       sender_(std::move(sender)),
       registry_(config_.registry),
+      tracks_(config_.tracks),
       state_(config_.state),
       telemetry_(),
       connections_(config_.connections),
@@ -68,8 +69,17 @@ InboundResult ServerRuntime::ingest(
                 if (result != AssetRegistryResult::stored &&
                     result != AssetRegistryResult::duplicate)
                     return InboundResult::rejected;
+            } else if constexpr (std::is_same_v<T, TargetCoordinate>) {
+                if (registry_.authenticate(
+                        message.header, source, received_at_us) !=
+                    AssetRegistryResult::stored)
+                    return InboundResult::rejected;
+                const auto result = tracks_.update(message, received_at_us);
+                return result.result == TrackUpdateResult::stored ||
+                               result.result == TrackUpdateResult::duplicate
+                           ? InboundResult::accepted
+                           : InboundResult::rejected;
             } else if constexpr (
-                std::is_same_v<T, TargetCoordinate> ||
                 std::is_same_v<T, ObservationStatus> ||
                 std::is_same_v<T, EffectorStatus> ||
                 std::is_same_v<T, CommandAck> ||
@@ -269,6 +279,10 @@ std::vector<TargetCoordinate> ServerRuntime::targets(const std::uint64_t now_us)
 
 std::vector<AssetSnapshot> ServerRuntime::assets(const std::uint64_t now_us) {
     return registry_.assets(now_us);
+}
+
+std::vector<TrackSnapshot> ServerRuntime::tracks(const std::uint64_t now_us) {
+    return tracks_.tracks(now_us);
 }
 
 std::optional<ObservationStatus> ServerRuntime::observation_status() const { return telemetry_.observation_status(); }

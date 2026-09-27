@@ -7,6 +7,7 @@
 #include "c2/observation_command_service.hpp"
 #include "c2/state_store.hpp"
 #include "c2/telemetry_store.hpp"
+#include "c2/track_store.hpp"
 #include "c2/udp_transport.hpp"
 
 #include <cstddef>
@@ -32,6 +33,7 @@ struct ServerRuntimeConfig {
     std::uint64_t command_ack_timeout_us{200'000};
     std::uint32_t command_max_attempts{3};
     AssetRegistryConfig registry;
+    TrackStoreConfig tracks;
 };
 
 struct CommandRetryResult {
@@ -79,6 +81,7 @@ public:
         ComponentId source, std::uint64_t now_us);
     [[nodiscard]] std::vector<TargetCoordinate> targets(std::uint64_t now_us) const;
     [[nodiscard]] std::vector<AssetSnapshot> assets(std::uint64_t now_us);
+    [[nodiscard]] std::vector<TrackSnapshot> tracks(std::uint64_t now_us);
     [[nodiscard]] std::optional<ObservationStatus> observation_status() const;
     [[nodiscard]] std::optional<EffectorStatus> effector_status() const;
     [[nodiscard]] std::optional<CommandAck> acknowledgement(
@@ -101,6 +104,7 @@ private:
     ServerRuntimeConfig config_;
     DatagramSender sender_;
     AssetRegistry registry_;
+    TrackStore tracks_;
     StateStore state_;
     TelemetryStore telemetry_;
     ConnectionMonitor connections_;
