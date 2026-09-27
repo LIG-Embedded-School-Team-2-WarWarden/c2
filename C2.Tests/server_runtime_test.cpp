@@ -369,4 +369,78 @@ TEST(ServerRuntimeRegistrationTest, AssignsGlobalTrackIdsAcrossObservationAssets
     EXPECT_EQ(tracks[1].observation_asset_id, 102U);
     EXPECT_EQ(tracks[0].detection_id, tracks[1].detection_id);
 }
+
+TEST(ServerRuntimeRegistrationTest, RoutesObservationCommandToRegisteredSessionAndTracksFinalAck) {
+    struct Sent { std::vector<std::byte> data; c2::Endpoint endpoint; };
+    std::vector<Sent> sent;
+    c2::ServerRuntime server(config(), [&](auto data, const auto& endpoint) {
+        sent.push_back({{data.begin(), data.end()}, endpoint});
+    });
+    const c2::Endpoint source{"10.10.0.7", 40'001};
+    const auto asset = registration(101, 10, c2::AssetRole::observation, 51'101);
+    ASSERT_EQ(server.ingest(bytes(asset), source, 100), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(asset, 2)), source, 101),
+              c2::InboundResult::accepted);
+    EXPECT_EQ(std::get<c2::DispatchError>(server.command_observation(
+                  101, c2::ObservationTurretCommandType::scan, 10, 5, 102)),
+              c2::DispatchError::pose_resynchronization_required);
+
+    c2::AssetPose synchronized_pose{
+        {c2::protocol_version, 3, 102, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 10},
+        c2::CoordinateFrame::project_frame, 0, 0, 1, 0};
+    ASSERT_EQ(server.ingest(bytes(synchronized_pose), source, 102),
+              c2::InboundResult::accepted);
+    const auto dispatched = server.command_observation(
+        101, c2::ObservationTurretCommandType::scan, 10, 5, 103);
+    ASSERT_TRUE(std::holds_alternative<c2::ObservationTurretCommand>(dispatched));
+    ASSERT_EQ(sent.size(), 1U);
+    EXPECT_EQ(sent.front().endpoint.address, "10.10.0.7");
+    EXPECT_EQ(sent.front().endpoint.port, 51'101);
+    const auto& command = std::get<c2::ObservationTurretCommand>(dispatched);
+    EXPECT_EQ(command.header.asset_id, 101U);
+    EXPECT_EQ(command.header.session_id, 10U);
+    EXPECT_EQ(server.pending_command_count(), 1U);
+
+    c2::CommandAck progress{
+        {c2::protocol_version, 4, 104, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 10},
+        command.command_id, c2::CommandResult::received, 0, 104};
+    ASSERT_EQ(server.ingest(bytes(progress), source, 104),
+              c2::InboundResult::accepted);
+    EXPECT_EQ(server.pending_command_count(), 1U);
+    progress.header.sequence = 5;
+    progress.header.timestamp_us = 105;
+    progress.timestamp_us = 105;
+    progress.result = c2::CommandResult::completed;
+    ASSERT_EQ(server.ingest(bytes(progress), source, 105),
+              c2::InboundResult::accepted);
+    EXPECT_EQ(server.pending_command_count(), 0U);
+}
+
+TEST(ServerRuntimeRegistrationTest, NewSessionEndsPreviousSessionPendingCommands) {
+    c2::ServerRuntime server(config(), [](auto, auto) {});
+    const c2::Endpoint source{"10.10.0.7", 40'001};
+    const auto old_session = registration(101, 10, c2::AssetRole::observation, 51'101);
+    ASSERT_EQ(server.ingest(bytes(old_session), source, 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(old_session, 2)), source, 101),
+              c2::InboundResult::accepted);
+    c2::AssetPose synchronized_pose{
+        {c2::protocol_version, 3, 102, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 10},
+        c2::CoordinateFrame::project_frame, 0, 0, 1, 0};
+    ASSERT_EQ(server.ingest(bytes(synchronized_pose), source, 102),
+              c2::InboundResult::accepted);
+    ASSERT_TRUE(std::holds_alternative<c2::ObservationTurretCommand>(
+        server.command_observation(
+            101, c2::ObservationTurretCommandType::home, 0, 0, 103)));
+    ASSERT_EQ(server.pending_command_count(), 1U);
+
+    const auto new_session = registration(
+        101, 11, c2::AssetRole::observation, 51'102);
+    ASSERT_EQ(server.ingest(bytes(new_session), {"10.10.0.8", 40'002}, 104),
+              c2::InboundResult::accepted);
+    EXPECT_EQ(server.pending_command_count(), 0U);
+}
 }  // namespace
