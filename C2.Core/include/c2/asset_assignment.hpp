@@ -4,6 +4,8 @@
 #include "c2/track_store.hpp"
 
 #include <cstdint>
+#include <map>
+#include <mutex>
 #include <optional>
 #include <vector>
 
@@ -47,4 +49,65 @@ struct EffectorScore {
     const std::vector<EffectorCandidate>& candidates,
     std::uint64_t required_capabilities,
     const AssignmentScoreWeights& weights);
+
+enum class AssignmentResult {
+    assigned,
+    no_candidate,
+    temporarily_unavailable,
+    assignment_lost,
+    completed,
+    failed,
+    operator_action_required,
+    capacity_exceeded,
+    invalid_track,
+};
+
+struct AssetAssignmentConfig {
+    AssignmentScoreWeights weights;
+    std::uint64_t required_capabilities{capability::effector_point};
+    std::size_t maximum_assignments{256};
+};
+
+struct AssetAssignment {
+    std::uint64_t track_id{};
+    std::uint64_t effector_asset_id{};
+    std::uint64_t effector_session_id{};
+    AssignmentResult state{AssignmentResult::assigned};
+    bool manually_selected{};
+    bool attack_started{};
+    double score{};
+    std::uint64_t changed_at_us{};
+};
+
+struct AssignmentDecision {
+    AssignmentResult result{AssignmentResult::no_candidate};
+    std::optional<AssetAssignment> assignment;
+};
+
+class AssetAssignmentService final {
+public:
+    explicit AssetAssignmentService(AssetAssignmentConfig config);
+
+    [[nodiscard]] AssignmentDecision assign(
+        const TrackSnapshot& track,
+        const std::vector<EffectorCandidate>& candidates,
+        std::optional<std::uint64_t> requested_asset_id = std::nullopt);
+    [[nodiscard]] std::optional<AssetAssignment> assignment(
+        std::uint64_t track_id) const;
+    [[nodiscard]] bool mark_attack_started(std::uint64_t track_id);
+    [[nodiscard]] std::size_t mark_unavailable(
+        std::uint64_t asset_id, std::uint64_t session_id,
+        std::uint64_t now_us);
+    [[nodiscard]] AssignmentResult unassign(std::uint64_t track_id);
+    [[nodiscard]] AssignmentResult complete(
+        std::uint64_t track_id, bool succeeded);
+
+private:
+    [[nodiscard]] std::size_t active_count_locked(
+        std::uint64_t asset_id) const;
+
+    AssetAssignmentConfig config_;
+    mutable std::mutex mutex_;
+    std::map<std::uint64_t, AssetAssignment> assignments_;
+};
 }  // namespace c2

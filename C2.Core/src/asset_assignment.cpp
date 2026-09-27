@@ -92,4 +92,136 @@ std::optional<EffectorScore> select_effector_candidate(
     if (ranked.empty()) return std::nullopt;
     return ranked.front();
 }
+
+AssetAssignmentService::AssetAssignmentService(AssetAssignmentConfig config)
+    : config_(std::move(config)) {
+    if (config_.required_capabilities == 0 || config_.maximum_assignments == 0)
+        throw std::invalid_argument("assignment service configuration is invalid");
+    (void)rank_effector_candidates(
+        TrackSnapshot{}, {}, config_.required_capabilities, config_.weights);
+}
+
+std::size_t AssetAssignmentService::active_count_locked(
+    const std::uint64_t asset_id) const {
+    std::size_t count{};
+    for (const auto& [track_id, assignment] : assignments_) {
+        (void)track_id;
+        if (assignment.effector_asset_id == asset_id &&
+            (assignment.state == AssignmentResult::assigned ||
+             assignment.state == AssignmentResult::operator_action_required))
+            ++count;
+    }
+    return count;
+}
+
+AssignmentDecision AssetAssignmentService::assign(
+    const TrackSnapshot& track,
+    const std::vector<EffectorCandidate>& candidates,
+    const std::optional<std::uint64_t> requested_asset_id) {
+    if (track.track_id == 0) return {AssignmentResult::invalid_track, std::nullopt};
+    std::lock_guard lock(mutex_);
+    const auto existing = assignments_.find(track.track_id);
+    if (existing != assignments_.end()) {
+        if (existing->second.state == AssignmentResult::assigned)
+            return {AssignmentResult::assigned, existing->second};
+        if (existing->second.state == AssignmentResult::operator_action_required)
+            return {AssignmentResult::operator_action_required, existing->second};
+        if (existing->second.state == AssignmentResult::completed ||
+            existing->second.state == AssignmentResult::failed)
+            return {existing->second.state, existing->second};
+    } else if (assignments_.size() >= config_.maximum_assignments) {
+        return {AssignmentResult::capacity_exceeded, std::nullopt};
+    }
+
+    std::vector<EffectorCandidate> eligible_scope;
+    bool relevant_candidate_exists{};
+    for (auto candidate : candidates) {
+        if (requested_asset_id && candidate.asset.asset_id != *requested_asset_id)
+            continue;
+        if (candidate.asset.role == AssetRole::effector &&
+            (candidate.asset.capabilities & config_.required_capabilities) ==
+                config_.required_capabilities)
+            relevant_candidate_exists = true;
+        candidate.active_assignments += active_count_locked(candidate.asset.asset_id);
+        eligible_scope.push_back(std::move(candidate));
+    }
+    const auto selected = select_effector_candidate(
+        track, eligible_scope, config_.required_capabilities, config_.weights);
+    if (!selected) {
+        const auto result = relevant_candidate_exists
+            ? AssignmentResult::temporarily_unavailable
+            : AssignmentResult::no_candidate;
+        return {result, std::nullopt};
+    }
+
+    AssetAssignment assignment{track.track_id,
+                               selected->asset_id,
+                               selected->session_id,
+                               AssignmentResult::assigned,
+                               requested_asset_id.has_value(),
+                               false,
+                               selected->total,
+                               track.received_at_us};
+    assignments_.insert_or_assign(track.track_id, assignment);
+    return {AssignmentResult::assigned, assignment};
+}
+
+std::optional<AssetAssignment> AssetAssignmentService::assignment(
+    const std::uint64_t track_id) const {
+    std::lock_guard lock(mutex_);
+    const auto found = assignments_.find(track_id);
+    if (found == assignments_.end()) return std::nullopt;
+    return found->second;
+}
+
+bool AssetAssignmentService::mark_attack_started(const std::uint64_t track_id) {
+    std::lock_guard lock(mutex_);
+    const auto found = assignments_.find(track_id);
+    if (found == assignments_.end() ||
+        found->second.state != AssignmentResult::assigned)
+        return false;
+    found->second.attack_started = true;
+    return true;
+}
+
+std::size_t AssetAssignmentService::mark_unavailable(
+    const std::uint64_t asset_id, const std::uint64_t session_id,
+    const std::uint64_t now_us) {
+    std::lock_guard lock(mutex_);
+    std::size_t changed{};
+    for (auto& [track_id, assignment] : assignments_) {
+        (void)track_id;
+        if (assignment.effector_asset_id != asset_id ||
+            assignment.effector_session_id != session_id ||
+            assignment.state != AssignmentResult::assigned)
+            continue;
+        assignment.state = assignment.attack_started
+            ? AssignmentResult::operator_action_required
+            : AssignmentResult::assignment_lost;
+        assignment.changed_at_us = now_us;
+        ++changed;
+    }
+    return changed;
+}
+
+AssignmentResult AssetAssignmentService::unassign(const std::uint64_t track_id) {
+    std::lock_guard lock(mutex_);
+    const auto found = assignments_.find(track_id);
+    if (found == assignments_.end()) return AssignmentResult::invalid_track;
+    if (found->second.attack_started ||
+        found->second.state == AssignmentResult::operator_action_required)
+        return AssignmentResult::operator_action_required;
+    found->second.state = AssignmentResult::completed;
+    return AssignmentResult::completed;
+}
+
+AssignmentResult AssetAssignmentService::complete(
+    const std::uint64_t track_id, const bool succeeded) {
+    std::lock_guard lock(mutex_);
+    const auto found = assignments_.find(track_id);
+    if (found == assignments_.end()) return AssignmentResult::invalid_track;
+    found->second.state = succeeded ? AssignmentResult::completed
+                                    : AssignmentResult::failed;
+    return found->second.state;
+}
 }  // namespace c2
