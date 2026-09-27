@@ -110,6 +110,7 @@
     <ClCompile Include="attack_command_service_test.cpp" />
     <ClCompile Include="asset_registry_test.cpp" />
     <ClCompile Include="asset_assignment_scoring_test.cpp" />
+    <ClCompile Include="asset_assignment_service_test.cpp" />
     <ClCompile Include="connection_monitor_test.cpp" />
     <ClCompile Include="command_tracker_test.cpp" />
     <ClCompile Include="dummy_assets_test.cpp" />
