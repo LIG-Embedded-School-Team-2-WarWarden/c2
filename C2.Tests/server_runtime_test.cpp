@@ -336,4 +336,37 @@ TEST(ServerRuntimeRegistrationTest, ReplacesSessionAndRejectsOldSessionTraffic) 
     EXPECT_EQ(server.assets(104).front().session_id, 11U);
     EXPECT_FALSE(server.assets(104).front().pose_synchronized);
 }
+
+TEST(ServerRuntimeRegistrationTest, AssignsGlobalTrackIdsAcrossObservationAssets) {
+    auto runtime_config = config();
+    runtime_config.tracks = {1'000, 8, 4, 100};
+    c2::ServerRuntime server(runtime_config, [](auto, auto) {});
+    const c2::Endpoint first_source{"10.10.0.7", 40'001};
+    const c2::Endpoint second_source{"10.10.0.8", 40'002};
+    const auto first = registration(101, 1, c2::AssetRole::observation, 51'101);
+    const auto second = registration(102, 1, c2::AssetRole::observation, 51'102);
+    ASSERT_EQ(server.ingest(bytes(first), first_source, 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(second), second_source, 100),
+              c2::InboundResult::accepted);
+
+    c2::TargetCoordinate first_target{
+        {c2::protocol_version, 2, 101, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 1},
+        7, 101, c2::CoordinateFrame::project_frame, 10, 20, 5, 0.9F};
+    auto second_target = first_target;
+    second_target.header.asset_id = 102;
+    ASSERT_EQ(server.ingest(bytes(first_target), first_source, 101),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(second_target), second_source, 101),
+              c2::InboundResult::accepted);
+
+    const auto tracks = server.tracks(101);
+    ASSERT_EQ(tracks.size(), 2U);
+    EXPECT_EQ(tracks[0].track_id, 100U);
+    EXPECT_EQ(tracks[0].observation_asset_id, 101U);
+    EXPECT_EQ(tracks[1].track_id, 101U);
+    EXPECT_EQ(tracks[1].observation_asset_id, 102U);
+    EXPECT_EQ(tracks[0].detection_id, tracks[1].detection_id);
+}
 }  // namespace
