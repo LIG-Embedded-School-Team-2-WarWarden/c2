@@ -562,7 +562,7 @@ bool decode_message(const std::span<const std::byte> bytes, EffectorTurretComman
                 return true;
             case 3:
                 if (!read_uint(reader, type, integer)) return false;
-                value.target_id = static_cast<std::uint32_t>(integer);
+                value.target_id = integer;
                 return true;
             case 4:
                 return read_float(reader, type, value.target_pan_deg);
@@ -587,7 +587,7 @@ bool decode_message(const std::span<const std::byte> bytes, AttackCommand& messa
                 return true;
             case 3:
                 if (!read_uint(reader, type, integer)) return false;
-                value.target_id = static_cast<std::uint32_t>(integer);
+                value.target_id = integer;
                 return true;
             case 4:
                 if (!read_uint(reader, type, integer)) return false;

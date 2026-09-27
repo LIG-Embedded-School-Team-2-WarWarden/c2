@@ -76,9 +76,9 @@ public:
         std::uint64_t asset_id, ObservationTurretCommandType type,
         float pan_deg, float tilt_deg, std::uint64_t now_us);
     [[nodiscard]] EffectorDispatchResult point_effector(
-        std::uint32_t target_id, std::uint64_t now_us);
+        std::uint64_t target_id, std::uint64_t now_us);
     [[nodiscard]] AttackDispatchResult attack(
-        AttackAction action, std::uint32_t target_id,
+        AttackAction action, std::uint64_t target_id,
         std::uint32_t duration_ms, std::uint64_t now_us);
     void send_heartbeats(std::uint64_t now_us, std::uint64_t uptime_ms);
     [[nodiscard]] CommandRetryResult retry_unacknowledged(std::uint64_t now_us);
