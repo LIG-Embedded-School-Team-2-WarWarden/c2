@@ -27,6 +27,8 @@ AssetRegistry::AssetRegistry(const AssetRegistryConfig config) : config_(config)
         throw std::invalid_argument("heartbeat timeout must be non-zero");
     if (config_.retired_retention_us == 0)
         throw std::invalid_argument("retired retention must be non-zero");
+    if (config_.status_timeout_us == 0)
+        throw std::invalid_argument("status timeout must be non-zero");
 }
 
 AssetRegistryResult AssetRegistry::register_asset(
@@ -110,6 +112,7 @@ AssetRegistryResult AssetRegistry::unregister_asset(
     entry.terminal_state = AssetConnectionState::unregistered;
     entry.retired_at_us = received_at_us;
     entry.pose.reset();
+    entry.effector_status.reset();
     return AssetRegistryResult::unregistered;
 }
 
@@ -173,6 +176,31 @@ AssetRegistryResult AssetRegistry::authenticate(
     return AssetRegistryResult::stored;
 }
 
+AssetRegistryResult AssetRegistry::update_effector_status(
+    const EffectorStatus& status,
+    const Endpoint& source,
+    const std::uint64_t received_at_us) {
+    if (!validate(status).valid() || received_at_us == 0)
+        return AssetRegistryResult::invalid;
+    std::lock_guard lock(mutex_);
+    const Entry* validated{};
+    const auto result = validate_message_locked(status.header, source, validated);
+    if (result != AssetRegistryResult::stored) return result;
+    auto& entry = entries_.at(status.header.asset_id);
+    if (entry.registration.role != AssetRole::effector)
+        return AssetRegistryResult::role_mismatch;
+    if (entry.effector_status) {
+        if (status.header.sequence == entry.effector_status->header.sequence &&
+            status.timestamp_us == entry.effector_status->timestamp_us)
+            return AssetRegistryResult::duplicate;
+        if (status.timestamp_us <= entry.effector_status->timestamp_us)
+            return AssetRegistryResult::stale;
+    }
+    entry.effector_status = status;
+    entry.status_received_at_us = received_at_us;
+    return AssetRegistryResult::stored;
+}
+
 AssetConnectionState AssetRegistry::state_locked(
     const Entry& entry, const std::uint64_t now_us) const noexcept {
     if (!entry.active) return entry.terminal_state;
@@ -188,6 +216,9 @@ AssetConnectionState AssetRegistry::state_locked(
 AssetSnapshot AssetRegistry::snapshot_locked(
     const Entry& entry, const std::uint64_t now_us) const {
     const auto& registration = entry.registration;
+    const auto status_current = entry.effector_status &&
+        (now_us <= entry.status_received_at_us ||
+         now_us - entry.status_received_at_us <= config_.status_timeout_us);
     return {registration.header.asset_id,
             registration.header.session_id,
             registration.role,
@@ -203,7 +234,9 @@ AssetSnapshot AssetRegistry::snapshot_locked(
             entry.last_heartbeat_received_at_us,
             state_locked(entry, now_us),
             entry.pose.has_value(),
-            entry.pose};
+            entry.pose,
+            entry.effector_status,
+            status_current};
 }
 
 std::optional<AssetSnapshot> AssetRegistry::asset(
@@ -254,6 +287,7 @@ void AssetRegistry::expire_locked(const std::uint64_t now_us, std::size_t& count
             entry.terminal_state = AssetConnectionState::lease_expired;
             entry.retired_at_us = now_us;
             entry.pose.reset();
+            entry.effector_status.reset();
             ++count;
         }
     }
