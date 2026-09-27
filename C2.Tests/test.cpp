@@ -113,6 +113,24 @@ TEST(ProtocolHeaderTest, RejectsEachInvalidHeaderField) {
     EXPECT_TRUE(has_error(validate(candidate), "unexpected destination_id"));
 }
 
+TEST(ProtocolHeaderTest, RequiresAssetAndSessionIdentityForEveryAssetRoute) {
+    const auto validate = [](const c2::MessageHeader& candidate) {
+        return c2::validate_header(candidate,
+                                   c2::ComponentId::observation_asset,
+                                   c2::ComponentId::command_and_control);
+    };
+
+    auto candidate = header(
+        c2::ComponentId::observation_asset, c2::ComponentId::command_and_control);
+    candidate.asset_id = 0;
+    EXPECT_TRUE(has_error(validate(candidate), "asset_id must be non-zero"));
+
+    candidate = header(
+        c2::ComponentId::observation_asset, c2::ComponentId::command_and_control);
+    candidate.session_id = 0;
+    EXPECT_TRUE(has_error(validate(candidate), "session_id must be non-zero"));
+}
+
 TEST(AssetPoseContractTest, AcceptsProjectFramePoseFromEitherAsset) {
     EXPECT_TRUE(c2::validate(valid_pose(c2::ComponentId::observation_asset)).valid());
     EXPECT_TRUE(c2::validate(valid_pose(c2::ComponentId::effector_asset)).valid());

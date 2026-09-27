@@ -197,4 +197,70 @@ TEST(ProtobufCodecTest, RejectsEveryTruncatedGoldenPacketWithoutThrowing) {
         bytes("8080808080808080808002"), c2::protobuf::DecodeError::malformed);
     expect_decode_error(bytes("0A00"), c2::protobuf::DecodeError::invalid_message);
 }
+
+TEST(ProtobufCodecTest, RoundTripsAssetRegistrationAndUnregister) {
+    c2::AssetRegistration registration{
+        {c2::protocol_version, 9, 100, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 7},
+        c2::AssetRole::observation,
+        51'001,
+        c2::capability::observation_scan,
+        "dummy-observation/2.0",
+        "simulator",
+        {-170.0F, 170.0F, -20.0F, 80.0F},
+        false,
+        5'000};
+
+    const auto encoded = c2::protobuf::encode(c2::Envelope{registration});
+    const auto decoded = c2::protobuf::decode(encoded);
+    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+    const auto& actual =
+        std::get<c2::AssetRegistration>(std::get<c2::Envelope>(decoded).payload);
+    EXPECT_EQ(actual.header.asset_id, 101U);
+    EXPECT_EQ(actual.header.session_id, 7U);
+    EXPECT_EQ(actual.command_port, 51'001U);
+    EXPECT_EQ(actual.capabilities, c2::capability::observation_scan);
+    EXPECT_EQ(actual.software_version, "dummy-observation/2.0");
+    EXPECT_FLOAT_EQ(actual.turret_limits.minimum_pan_deg, -170.0F);
+    EXPECT_EQ(c2::protobuf::encode(std::get<c2::Envelope>(decoded)), encoded);
+
+    c2::AssetUnregister unregister{registration.header, "normal shutdown"};
+    const auto unregister_encoded = c2::protobuf::encode(c2::Envelope{unregister});
+    const auto unregister_decoded = c2::protobuf::decode(unregister_encoded);
+    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(unregister_decoded));
+    EXPECT_EQ(
+        std::get<c2::AssetUnregister>(
+            std::get<c2::Envelope>(unregister_decoded).payload).reason,
+        "normal shutdown");
+}
+
+TEST(ProtobufCodecTest, RejectsRegistrationWithoutIdentityOrWithInvalidContract) {
+    c2::AssetRegistration registration{
+        {c2::protocol_version, 1, 1, c2::ComponentId::effector_asset,
+         c2::ComponentId::command_and_control, 201, 8},
+        c2::AssetRole::effector,
+        60'001,
+        c2::capability::effector_attack,
+        "dummy-effector/2.0",
+        {},
+        {-180.0F, 180.0F, -45.0F, 45.0F},
+        false,
+        5'000};
+
+    registration.header.asset_id = 0;
+    EXPECT_THROW(
+        (void)c2::protobuf::encode(c2::Envelope{registration}), std::invalid_argument);
+    registration.header.asset_id = 201;
+    registration.header.session_id = 0;
+    EXPECT_THROW(
+        (void)c2::protobuf::encode(c2::Envelope{registration}), std::invalid_argument);
+    registration.header.session_id = 8;
+    registration.command_port = 0;
+    EXPECT_THROW(
+        (void)c2::protobuf::encode(c2::Envelope{registration}), std::invalid_argument);
+    registration.command_port = 60'001;
+    registration.role = c2::AssetRole::observation;
+    EXPECT_THROW(
+        (void)c2::protobuf::encode(c2::Envelope{registration}), std::invalid_argument);
+}
 }  // namespace
