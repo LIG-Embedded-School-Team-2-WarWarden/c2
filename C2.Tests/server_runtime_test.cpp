@@ -465,11 +465,15 @@ TEST(ServerRuntimeRegistrationTest, NewSessionEndsPreviousSessionPendingCommands
 }
 
 TEST(ServerRuntimeAssignmentTest, AssignsNearestEffectorAndReassignsAfterHeartbeatTimeout) {
+    struct Sent { std::vector<std::byte> data; c2::Endpoint endpoint; };
+    std::vector<Sent> sent;
     auto runtime_config = config();
     runtime_config.registry = {8, 1'000, 10'000, 1'000};
     runtime_config.assignments.required_capabilities =
         c2::capability::effector_point | c2::capability::effector_attack;
-    c2::ServerRuntime server(runtime_config, [](auto, auto) {});
+    c2::ServerRuntime server(runtime_config, [&](auto data, const auto& endpoint) {
+        sent.push_back({{data.begin(), data.end()}, endpoint});
+    });
     const c2::Endpoint observer_source{"10.10.0.1", 40'001};
     const c2::Endpoint near_source{"10.10.0.2", 40'002};
     const c2::Endpoint far_source{"10.10.0.3", 40'003};
@@ -497,6 +501,19 @@ TEST(ServerRuntimeAssignmentTest, AssignsNearestEffectorAndReassignsAfterHeartbe
     EXPECT_EQ(decision.assignment->effector_asset_id, 201U);
     EXPECT_FALSE(decision.assignment->manually_selected);
     EXPECT_EQ(server.assignment(1)->effector_asset_id, 201U);
+
+    const auto point = server.point_effector(1, 106);
+    ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(point));
+    ASSERT_EQ(sent.size(), 1U);
+    EXPECT_EQ(sent.front().endpoint.address, near_source.address);
+    EXPECT_EQ(sent.front().endpoint.port, 60'201);
+    const auto decoded = c2::protobuf::decode(sent.front().data);
+    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+    const auto& point_command = std::get<c2::EffectorTurretCommand>(
+        std::get<c2::Envelope>(decoded).payload);
+    EXPECT_EQ(point_command.header.asset_id, 201U);
+    EXPECT_EQ(point_command.header.session_id, 1U);
+    EXPECT_EQ(point_command.target_id, 1U);
 
     ASSERT_EQ(server.ingest(bytes(heartbeat(far_effector, 5)), far_source, 1'101),
               c2::InboundResult::accepted);
