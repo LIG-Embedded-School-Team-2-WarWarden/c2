@@ -42,6 +42,8 @@ int main() {
             } else if (const auto* command = std::get_if<c2::ObservationTurretCommand>(&payload)) {
                 const auto result = asset.handle(*command, received);
                 send(*transport_ptr, result.acknowledgement, status_endpoint);
+                if (result.error_report)
+                    send(*transport_ptr, *result.error_report, status_endpoint);
                 send(*transport_ptr, asset.status(received), status_endpoint);
             }
         });
@@ -55,7 +57,8 @@ int main() {
                 const auto uptime = static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - started).count());
-                (void)asset.check_watchdog(now, 3'000'000);
+                if (const auto report = asset.check_watchdog(now, 3'000'000))
+                    send(transport, *report, status_endpoint);
                 send(transport, asset.status(now), status_endpoint);
                 if (tick % 10 == 0) {
                     send(transport, asset.asset_pose(now), status_endpoint);
