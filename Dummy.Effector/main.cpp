@@ -39,10 +39,14 @@ int main() {
             } else if (const auto* point = std::get_if<c2::EffectorTurretCommand>(&payload)) {
                 const auto result = asset.handle(*point, received);
                 send(*transport_ptr, result.acknowledgement, c2_endpoint);
+                if (result.error_report)
+                    send(*transport_ptr, *result.error_report, c2_endpoint);
                 send(*transport_ptr, asset.status(received), c2_endpoint);
             } else if (const auto* attack = std::get_if<c2::AttackCommand>(&payload)) {
                 const auto result = asset.handle(*attack, received);
                 send(*transport_ptr, result.acknowledgement, c2_endpoint);
+                if (result.error_report)
+                    send(*transport_ptr, *result.error_report, c2_endpoint);
                 send(*transport_ptr, asset.status(received), c2_endpoint);
             }
         });
@@ -56,7 +60,8 @@ int main() {
                 const auto uptime = static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - started).count());
-                (void)asset.check_watchdog(now, 3'000'000);
+                if (const auto report = asset.check_watchdog(now, 3'000'000))
+                    send(transport, *report, c2_endpoint);
                 send(transport, asset.status(now), c2_endpoint);
                 if (tick % 10 == 0) {
                     send(transport, asset.asset_pose(now), c2_endpoint);

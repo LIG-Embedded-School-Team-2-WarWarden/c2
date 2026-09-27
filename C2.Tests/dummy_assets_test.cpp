@@ -15,7 +15,8 @@ TEST(DummyObservationAssetTest, ExecutesScanStopHomeAndDeduplicates){
 TEST(DummyObservationAssetTest, RejectsExpiredAndOutOfRangeCommands){
  c2::DummyObservationAsset asset(pose(c2::ComponentId::observation_asset),{-90,90,-20,45});
  c2::ObservationTurretCommand command{header(c2::ComponentId::command_and_control,c2::ComponentId::observation_asset,1,10),1,c2::ObservationTurretCommandType::scan,91,0,20};
- EXPECT_EQ(asset.handle(command,11).acknowledgement.result,c2::CommandResult::rejected);command.command_id=2;command.target_pan_deg=0;EXPECT_EQ(asset.handle(command,21).acknowledgement.result,c2::CommandResult::rejected);
+ auto invalid=asset.handle(command,11);EXPECT_EQ(invalid.acknowledgement.result,c2::CommandResult::rejected);ASSERT_TRUE(invalid.error_report);EXPECT_TRUE(c2::validate(*invalid.error_report).valid());
+ command.command_id=2;command.target_pan_deg=0;auto expired=asset.handle(command,20);EXPECT_EQ(expired.acknowledgement.result,c2::CommandResult::rejected);EXPECT_EQ(expired.acknowledgement.error_code,c2::dummy_error::expired_command);ASSERT_TRUE(expired.error_report);
 }
 TEST(DummyObservationAssetTest, AcceptsValidLimitsThatDoNotContainHomeAngle){
  EXPECT_NO_THROW(c2::DummyObservationAsset(
@@ -35,6 +36,17 @@ TEST(DummyEffectorAssetTest, RejectsWrongTargetAndHonorsEmergencyStopAndDuplicat
  EXPECT_EQ(asset.handle(arm,11).acknowledgement.result,c2::CommandResult::rejected);
  c2::AttackCommand stop{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,2,12),2,0,c2::AttackAction::emergency_stop,0,100};
  auto first=asset.handle(stop,13);EXPECT_EQ(first.acknowledgement.result,c2::CommandResult::completed);EXPECT_TRUE(asset.handle(stop,14).duplicate);EXPECT_FALSE(asset.status(15).attack_active);
+}
+TEST(DummyEffectorAssetTest, RejectsPointingOutsideLocalLimits){
+ c2::DummyEffectorAsset asset(pose(c2::ComponentId::effector_asset),{-45,45,-10,20});
+ c2::EffectorTurretCommand point{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,1,10),1,7,46,0,100};
+ auto result=asset.handle(point,11);EXPECT_EQ(result.acknowledgement.result,c2::CommandResult::rejected);EXPECT_EQ(result.acknowledgement.error_code,c2::dummy_error::out_of_range);ASSERT_TRUE(result.error_report);EXPECT_TRUE(c2::validate(*result.error_report).valid());
+}
+TEST(DummyAssetsTest, BoundsResultCacheWithoutReplayingEvictedCommands){
+ c2::DummyObservationAsset asset(pose(c2::ComponentId::observation_asset),{-90,90,-20,45},1);
+ c2::ObservationTurretCommand command{header(c2::ComponentId::command_and_control,c2::ComponentId::observation_asset,1,10),1,c2::ObservationTurretCommandType::scan,10,0,100};
+ ASSERT_FALSE(asset.handle(command,11).duplicate);command.command_id=2;ASSERT_FALSE(asset.handle(command,12).duplicate);command.command_id=1;
+ auto stale=asset.handle(command,13);EXPECT_TRUE(stale.duplicate);EXPECT_EQ(stale.acknowledgement.error_code,c2::dummy_error::duplicate_command);ASSERT_TRUE(stale.error_report);
 }
 TEST(DummyAssetsTest, GenerateValidPoseStatusHeartbeatAndTarget){
  c2::DummyObservationAsset observation(pose(c2::ComponentId::observation_asset),{-90,90,-20,45});c2::DummyEffectorAsset effector(pose(c2::ComponentId::effector_asset));
@@ -58,8 +70,8 @@ TEST(DummyAssetsTest, StopsActiveWorkWhenControlHeartbeatTimesOut){
 
  EXPECT_FALSE(observation.check_watchdog(1100,1000));
  EXPECT_FALSE(effector.check_watchdog(1100,1000));
- EXPECT_TRUE(observation.check_watchdog(1101,1000));
- EXPECT_TRUE(effector.check_watchdog(1101,1000));
+ auto observation_timeout=observation.check_watchdog(1101,1000);ASSERT_TRUE(observation_timeout);EXPECT_EQ(observation_timeout->error_code,c2::dummy_error::communication_timeout);EXPECT_TRUE(c2::validate(*observation_timeout).valid());
+ auto effector_timeout=effector.check_watchdog(1101,1000);ASSERT_TRUE(effector_timeout);EXPECT_EQ(effector_timeout->severity,c2::ErrorSeverity::critical);EXPECT_TRUE(c2::validate(*effector_timeout).valid());
  EXPECT_FALSE(c2::is_scanning(observation.status(1102)));
  EXPECT_FALSE(effector.status(1102).attack_active);
  EXPECT_FALSE(effector.status(1103).attack_armed);
