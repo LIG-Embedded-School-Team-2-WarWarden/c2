@@ -159,6 +159,20 @@ AssetRegistryResult AssetRegistry::update_pose(
     return AssetRegistryResult::stored;
 }
 
+AssetRegistryResult AssetRegistry::authenticate(
+    const MessageHeader& header,
+    const Endpoint& source,
+    const std::uint64_t received_at_us) {
+    if (received_at_us == 0) return AssetRegistryResult::invalid;
+    std::lock_guard lock(mutex_);
+    const Entry* entry{};
+    const auto result = validate_message_locked(header, source, entry);
+    if (result != AssetRegistryResult::stored) return result;
+    if (received_at_us >= entry->lease_expires_at_us)
+        return AssetRegistryResult::not_registered;
+    return AssetRegistryResult::stored;
+}
+
 AssetConnectionState AssetRegistry::state_locked(
     const Entry& entry, const std::uint64_t now_us) const noexcept {
     if (!entry.active) return entry.terminal_state;

@@ -33,3 +33,18 @@
 - Refactor: snapshot과 직접 조회가 같은 `state_locked` 계산을 공유하게 했다. 중복·역전
   Heartbeat 및 Pose가 최신 상태를 덮어쓰지 않는 회귀시험을 추가했다.
 - 검증: registry 시험 8개 통과, 전체 시험 134개 통과.
+
+## Cycle 4 — 등록 기반 서버 수신과 Endpoint 인증
+
+- Red: 같은 IP를 쓰는 두 자산의 독립 등록, 광고된 명령 포트, 미등록 패킷,
+  Endpoint 불일치, 세션 교체, 이전 세션 거부 및 Pose 재동기화 초기화를 검증하는
+  `ServerRuntimeRegistrationTest`를 먼저 추가했다. runtime registry 설정,
+  송신 Endpoint를 받는 `ingest`, 자산 snapshot API가 없어 Release 빌드가 실패했다.
+- Green: `AssetRegistry`를 `ServerRuntime`에 연결하고 자산 발신 Heartbeat, Pose,
+  Target, status, ACK, error가 기존 상태를 변경하기 전에 `asset_id`, `session_id`,
+  역할과 실제 송신 Endpoint를 인증하도록 구현했다. 등록·해제는 registry에서 직접
+  처리한다.
+- Refactor: 기존 인프로세스 회귀시험용 2-인자 수신 API는 호환 경계로 유지하고,
+  인증이 끝난 메시지는 기존 저장 경로를 재사용해 상태 갱신 규칙의 중복을 피했다.
+- 검증: `MSBuild.exe c2.slnx /m /p:Configuration=Release /p:Platform=x64` 성공,
+  `x64\\Release\\C2.Tests.exe` 139/139 통과.

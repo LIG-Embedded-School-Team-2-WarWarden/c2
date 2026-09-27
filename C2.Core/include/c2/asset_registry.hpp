@@ -80,6 +80,10 @@ public:
         const AssetPose& pose,
         const Endpoint& source,
         std::uint64_t received_at_us);
+    [[nodiscard]] AssetRegistryResult authenticate(
+        const MessageHeader& header,
+        const Endpoint& source,
+        std::uint64_t received_at_us);
 
     [[nodiscard]] std::optional<AssetSnapshot> asset(
         std::uint64_t asset_id, std::uint64_t now_us) const;
