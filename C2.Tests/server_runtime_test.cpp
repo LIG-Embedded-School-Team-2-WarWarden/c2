@@ -34,6 +34,28 @@ c2::AssetPose pose(c2::ComponentId source, std::uint64_t time = 11) {
     return {header(source, 2, time), c2::CoordinateFrame::project_frame, 0, 0, 0, 0};
 }
 
+c2::AssetRegistration registration(
+    std::uint64_t asset_id, std::uint64_t session_id, c2::AssetRole role,
+    std::uint16_t command_port) {
+    const auto source = role == c2::AssetRole::observation
+        ? c2::ComponentId::observation_asset
+        : c2::ComponentId::effector_asset;
+    const auto capabilities = role == c2::AssetRole::observation
+        ? c2::capability::observation_scan
+        : c2::capability::effector_point | c2::capability::effector_attack;
+    return {{c2::protocol_version, 1, 10, source,
+             c2::ComponentId::command_and_control, asset_id, session_id},
+            role, command_port, capabilities, "runtime-test/2.0", {},
+            {-180, 180, -90, 90}, false, 5'000};
+}
+
+c2::Heartbeat heartbeat(const c2::AssetRegistration& asset, std::uint32_t sequence) {
+    return {{c2::protocol_version, sequence, 10 + sequence,
+             asset.header.source_id, c2::ComponentId::command_and_control,
+             asset.header.asset_id, asset.header.session_id},
+            c2::AssetOperatingState::operating, sequence, 10 + sequence};
+}
+
 TEST(ServerRuntimeTest, IngestsHeartbeatPoseTargetAndEffectorStatus) {
     std::vector<c2::Endpoint> destinations;
     c2::ServerRuntime server(config(), [&](auto, const auto& endpoint) { destinations.push_back(endpoint); });
@@ -249,5 +271,69 @@ TEST(ServerRuntimeTest, StopsRetryingAfterConfiguredAttemptLimit) {
     EXPECT_EQ(exhausted.exhausted, 1U);
     EXPECT_EQ(server.pending_command_count(), 0U);
     EXPECT_EQ(sent.size(), 3U);
+}
+
+TEST(ServerRuntimeRegistrationTest, RegistersAssetsFromActualSourceAndAdvertisedCommandPort) {
+    auto runtime_config = config();
+    runtime_config.registry = {8, 1'000, 10'000};
+    c2::ServerRuntime server(runtime_config, [](auto, auto) {});
+    const c2::Endpoint first_source{"10.10.0.7", 40'001};
+    const c2::Endpoint second_source{"10.10.0.7", 40'002};
+
+    EXPECT_EQ(server.ingest(bytes(registration(
+                  101, 1, c2::AssetRole::observation, 51'101)), first_source, 100),
+              c2::InboundResult::accepted);
+    EXPECT_EQ(server.ingest(bytes(registration(
+                  202, 1, c2::AssetRole::effector, 60'202)), second_source, 101),
+              c2::InboundResult::accepted);
+
+    const auto assets = server.assets(101);
+    ASSERT_EQ(assets.size(), 2U);
+    EXPECT_EQ(assets[0].asset_id, 101U);
+    EXPECT_EQ(assets[0].source_endpoint.port, 40'001);
+    EXPECT_EQ(assets[0].command_endpoint.address, "10.10.0.7");
+    EXPECT_EQ(assets[0].command_endpoint.port, 51'101);
+    EXPECT_EQ(assets[1].asset_id, 202U);
+    EXPECT_EQ(assets[1].command_endpoint.port, 60'202);
+}
+
+TEST(ServerRuntimeRegistrationTest, RejectsUnregisteredAndEndpointMismatchPackets) {
+    c2::ServerRuntime server(config(), [](auto, auto) {});
+    const auto asset = registration(101, 10, c2::AssetRole::observation, 51'101);
+    const c2::Endpoint source{"10.10.0.7", 40'001};
+
+    EXPECT_EQ(server.ingest(bytes(heartbeat(asset, 2)), source, 100),
+              c2::InboundResult::rejected);
+    ASSERT_EQ(server.ingest(bytes(asset), source, 101),
+              c2::InboundResult::accepted);
+    EXPECT_EQ(server.ingest(bytes(heartbeat(asset, 2)),
+                            {"10.10.0.7", 40'099}, 102),
+              c2::InboundResult::rejected);
+    EXPECT_EQ(server.ingest(bytes(heartbeat(asset, 2)), source, 103),
+              c2::InboundResult::accepted);
+}
+
+TEST(ServerRuntimeRegistrationTest, ReplacesSessionAndRejectsOldSessionTraffic) {
+    c2::ServerRuntime server(config(), [](auto, auto) {});
+    const c2::Endpoint old_source{"10.10.0.7", 40'001};
+    const c2::Endpoint new_source{"10.10.0.8", 40'002};
+    const auto old_session = registration(
+        101, 10, c2::AssetRole::observation, 51'101);
+    const auto new_session = registration(
+        101, 11, c2::AssetRole::observation, 51'102);
+
+    ASSERT_EQ(server.ingest(bytes(old_session), old_source, 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(old_session, 2)), old_source, 101),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(new_session), new_source, 102),
+              c2::InboundResult::accepted);
+    EXPECT_EQ(server.ingest(bytes(heartbeat(old_session, 3)), old_source, 103),
+              c2::InboundResult::rejected);
+    EXPECT_EQ(server.ingest(bytes(heartbeat(new_session, 2)), new_source, 104),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.assets(104).size(), 1U);
+    EXPECT_EQ(server.assets(104).front().session_id, 11U);
+    EXPECT_FALSE(server.assets(104).front().pose_synchronized);
 }
 }  // namespace
