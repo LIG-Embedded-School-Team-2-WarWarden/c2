@@ -96,3 +96,5 @@ timeout, 장비 한계 및 주소는 현재 ICD의 TBD 항목이므로 런타임
 1번 표적의 PROJECT_FRAME 좌표를 생성하며, 두 더미 자산은 `quit`으로 종료한다.
 시연 기본값과 문서의 TBD를 구현하면서 내린 결정은
 `docs/decisions/ADR-002-runtime-defaults-and-command-identity.md`에 정리되어 있다.
+요구사항별 구현·시험 근거와 실제 장비에 남은 항목은
+`docs/traceability/ICD-RTM.md`에서 확인할 수 있다.
