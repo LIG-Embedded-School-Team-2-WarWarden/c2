@@ -61,6 +61,12 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드 및 전체 테�
 | 명령 | 의미 |
 |---|---|
 | `scan PAN TILT` | 지정 방향을 중심으로 관측 탐색 시작 |
+| `observe PAN TILT` | 관측 자산을 절대 Pan/Tilt로 지향하되 탐색은 시작하지 않음 |
+| `obs-stop` | 관측 터렛 구동과 탐색 중지 |
+| `obs-home` | 관측 탐색을 중지하고 원점 복귀 |
+| `targets` | 유효한 표적 ID, PROJECT_FRAME 좌표와 신뢰도 표시 |
+| `status` | 두 자산 연결 및 관측·타격 상태 표시 |
+| `errors` | 수신한 오류 이력 표시 |
 | `point TARGET_ID` | 최신 표적 좌표로 타격 자산 지향 |
 | `arm TARGET_ID` | 안전조건 확인 후 공격 준비 |
 | `start TARGET_ID DURATION_MS` | 무장·정렬·표적 일치 확인 후 공격 시작 |

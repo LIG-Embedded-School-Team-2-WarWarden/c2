@@ -62,6 +62,16 @@ void print_dispatch(const Result& result) {
     std::cout << (std::holds_alternative<c2::DispatchError>(result) ? "rejected" : "sent")
               << '\n';
 }
+
+std::string_view connection_name(const c2::ConnectionState state) {
+    switch (state) {
+        case c2::ConnectionState::never_seen: return "NEVER_SEEN";
+        case c2::ConnectionState::connected: return "CONNECTED";
+        case c2::ConnectionState::disconnected: return "DISCONNECTED";
+        case c2::ConnectionState::unsupported_source: return "UNSUPPORTED";
+    }
+    return "UNKNOWN";
+}
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -103,7 +113,8 @@ int main(int argc, char* argv[]) {
             }
         });
 
-        std::cout << "C2 server started. Commands: scan P T, point ID, arm ID, "
+        std::cout << "C2 server started. Commands: scan P T, observe P T, obs-stop, "
+                     "obs-home, targets, status, errors, point ID, arm ID, "
                      "start ID MS, stop, estop, quit\n";
         std::string line;
         while (std::cout << "> " && std::getline(std::cin, line)) {
@@ -116,6 +127,51 @@ int main(int argc, char* argv[]) {
                 if (input >> pan >> tilt)
                     print_dispatch(runtime.command_observation(
                         c2::ObservationTurretCommandType::scan, pan, tilt, now_us()));
+            } else if (command == "observe") {
+                float pan{}, tilt{};
+                if (input >> pan >> tilt)
+                    print_dispatch(runtime.command_observation(
+                        c2::ObservationTurretCommandType::absolute_angle,
+                        pan, tilt, now_us()));
+            } else if (command == "obs-stop") {
+                print_dispatch(runtime.command_observation(
+                    c2::ObservationTurretCommandType::stop, 0, 0, now_us()));
+            } else if (command == "obs-home") {
+                print_dispatch(runtime.command_observation(
+                    c2::ObservationTurretCommandType::home, 0, 0, now_us()));
+            } else if (command == "targets") {
+                const auto targets = runtime.targets(now_us());
+                if (targets.empty()) std::cout << "no current targets\n";
+                for (const auto& target : targets)
+                    std::cout << "id=" << target.detection_id
+                              << " xyz=(" << target.x_m << ',' << target.y_m << ','
+                              << target.z_m << ") confidence=" << target.confidence << '\n';
+            } else if (command == "status") {
+                const auto now = now_us();
+                std::cout << "observation=" << connection_name(runtime.connection_state(
+                                 c2::ComponentId::observation_asset, now))
+                          << " effector=" << connection_name(runtime.connection_state(
+                                 c2::ComponentId::effector_asset, now)) << '\n';
+                if (const auto status = runtime.observation_status())
+                    std::cout << "observation pan=" << status->current_pan_deg
+                              << " tilt=" << status->current_tilt_deg
+                              << " scanning=" << (c2::is_scanning(*status) ? "yes" : "no")
+                              << " error=" << status->error_code << '\n';
+                if (const auto status = runtime.effector_status())
+                    std::cout << "effector pan=" << status->current_pan_deg
+                              << " tilt=" << status->current_tilt_deg
+                              << " aligned=" << (status->aligned ? "yes" : "no")
+                              << " armed=" << (status->attack_armed ? "yes" : "no")
+                              << " active=" << (status->attack_active ? "yes" : "no")
+                              << " error=" << status->error_code << '\n';
+            } else if (command == "errors") {
+                const auto errors = runtime.errors();
+                if (errors.empty()) std::cout << "no errors\n";
+                for (const auto& error : errors)
+                    std::cout << "source=" << static_cast<std::uint32_t>(error.header.source_id)
+                              << " code=" << error.error_code
+                              << " command=" << error.related_command_id
+                              << " detail=" << error.detail << '\n';
             } else if (command == "point") {
                 std::uint32_t target{};
                 if (input >> target) print_dispatch(runtime.point_effector(target, now_us()));

@@ -180,4 +180,21 @@ TEST(ServerRuntimeTest, SendsHeartbeatToBothAssets) {
         EXPECT_EQ(heartbeat.uptime_ms, 25U);
     }
 }
+
+TEST(ServerRuntimeTest, ExposesConnectionsAndCurrentTargetsForOperatorDisplay) {
+    c2::ServerRuntime server(config(), [](auto, auto) {});
+    EXPECT_EQ(server.connection_state(c2::ComponentId::observation_asset, 100),
+              c2::ConnectionState::never_seen);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(c2::ComponentId::observation_asset)), 100),
+              c2::InboundResult::accepted);
+    EXPECT_EQ(server.connection_state(c2::ComponentId::observation_asset, 100),
+              c2::ConnectionState::connected);
+    c2::TargetCoordinate target{header(c2::ComponentId::observation_asset, 3, 12),
+                                7, 12, c2::CoordinateFrame::project_frame,
+                                10, 20, 30, 0.8F};
+    ASSERT_EQ(server.ingest(bytes(target), 102), c2::InboundResult::accepted);
+    const auto targets = server.targets(103);
+    ASSERT_EQ(targets.size(), 1U);
+    EXPECT_EQ(targets.front().detection_id, 7U);
+}
 }  // namespace

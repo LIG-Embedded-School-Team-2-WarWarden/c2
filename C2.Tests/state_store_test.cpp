@@ -129,4 +129,20 @@ TEST(StateStoreTest, RejectsInvalidConfiguration) {
     EXPECT_THROW((void)c2::StateStore({0, 1}), std::invalid_argument);
     EXPECT_THROW((void)c2::StateStore({1, 0}), std::invalid_argument);
 }
+
+TEST(StateStoreTest, ReturnsCurrentTargetsInStableIdentityOrder) {
+    c2::StateStore store({100, 4});
+    auto second = target(2, 10, 10);
+    auto first = target(1, 11, 11);
+    ASSERT_EQ(store.update(second, 10), c2::StoreUpdateResult::stored);
+    ASSERT_EQ(store.update(first, 11), c2::StoreUpdateResult::stored);
+
+    const auto targets = store.targets(12);
+
+    ASSERT_EQ(targets.size(), 2U);
+    EXPECT_EQ(targets[0].detection_id, 1U);
+    EXPECT_EQ(targets[1].detection_id, 2U);
+    EXPECT_EQ(store.targets(111).size(), 1U);
+    EXPECT_TRUE(store.targets(112).empty());
+}
 }  // namespace
