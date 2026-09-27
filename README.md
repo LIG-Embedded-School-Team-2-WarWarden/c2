@@ -94,6 +94,12 @@ timeout, 장비 한계 및 주소는 현재 ICD의 TBD 항목이므로 런타임
 서버에서 `scan 10 5`, `point 1`, `arm 1`, `start 1 100`을 차례대로 입력하면
 탐색부터 타격 동작 종료까지 로컬 UDP 전체 흐름을 확인할 수 있다. 더미 관측 자산은
 1번 표적의 PROJECT_FRAME 좌표를 생성하며, 두 더미 자산은 `quit`으로 종료한다.
+동일한 실제 프로세스 시험은 다음 명령으로 자동 실행할 수 있으며 CI에서도 수행한다.
+
+```powershell
+.\scripts\run_udp_smoke.ps1 -BinDir .\x64\Release
+```
+
 시연 기본값과 문서의 TBD를 구현하면서 내린 결정은
 `docs/decisions/ADR-002-runtime-defaults-and-command-identity.md`에 정리되어 있다.
 요구사항별 구현·시험 근거와 실제 장비에 남은 항목은
