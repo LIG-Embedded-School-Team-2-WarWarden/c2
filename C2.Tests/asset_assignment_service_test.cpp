@@ -45,7 +45,7 @@ c2::EffectorCandidate assignment_candidate(
 
 c2::AssetAssignmentConfig assignment_config() {
     return {{1, 1, 100, 500, 25},
-            c2::capability::effector_point, 32};
+            c2::capability::effector_attack, 32};
 }
 }
 
@@ -114,7 +114,7 @@ TEST(AssetAssignmentServiceTest, ReassignsPreAttackLossButNotActiveAttackLoss) {
     const auto backup = assignment_candidate(20, 0);
     ASSERT_EQ(service.assign(assignment_track(1), {first, backup}).result,
               c2::AssignmentResult::assigned);
-    ASSERT_EQ(service.mark_unavailable(10, 110), 1U);
+    ASSERT_EQ(service.mark_unavailable(10, 110, 110), 1U);
     ASSERT_TRUE(service.assignment(1).has_value());
     EXPECT_EQ(service.assignment(1)->state, c2::AssignmentResult::assignment_lost);
     auto unavailable_first = first;
@@ -125,7 +125,7 @@ TEST(AssetAssignmentServiceTest, ReassignsPreAttackLossButNotActiveAttackLoss) {
     EXPECT_EQ(reassigned.assignment->effector_asset_id, 20U);
 
     ASSERT_TRUE(service.mark_attack_started(1));
-    ASSERT_EQ(service.mark_unavailable(20, 120), 1U);
+    ASSERT_EQ(service.mark_unavailable(20, 120, 120), 1U);
     EXPECT_EQ(service.assignment(1)->state,
               c2::AssignmentResult::operator_action_required);
     const auto prohibited = service.assign(

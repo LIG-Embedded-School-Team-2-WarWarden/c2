@@ -96,3 +96,15 @@
 - Refactor: 안전 후보 판정, 최단 각도, 가중치 검증을 작은 함수로 분리하고 점수 결과에
   거리·회전량·계산된 목표 Pan/Tilt를 함께 보존했다.
 - 검증: assignment scoring 시험 6/6 통과.
+
+## Cycle 9 — 원자적 할당, 수동 지정 및 재할당 정책
+
+- Red: 배타 자산 중복 점유, latch 기반 동시 할당 경쟁, 수동 지정 안전검사, 공격 전
+  단절 재할당, 공격 중 자동 인계 금지, active attack unassign 거부, 완료 상태,
+  `no_candidate`와 `temporarily_unavailable` 구분 테스트를 먼저 추가했다. 서비스 API
+  부재로 Release 빌드 실패를 확인했다.
+- Green: 선택과 점유를 단일 임계구역에서 처리하는 `AssetAssignmentService`와 할당
+  상태 전이를 구현했다.
+- Refactor: 활성 점유 계산을 서비스 내부 snapshot에 합산해 호출자가 전달한 stale
+  작업 수만 신뢰하지 않게 했고, 자산·세션이 모두 일치할 때만 단절 상태를 전파한다.
+- 검증: assignment service 시험 6/6 통과.
