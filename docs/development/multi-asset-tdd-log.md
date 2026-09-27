@@ -61,3 +61,16 @@
 - Refactor: 원본 키 index와 track ID 정렬 map을 분리해 갱신 조회는 유지하면서 반환
   순서를 결정적으로 만들었다. ID 발급은 0 및 활성 ID를 건너뛴다.
 - 검증: Release 전체 빌드 성공, `x64\\Release\\C2.Tests.exe` 145/145 통과.
+
+## Cycle 6 — 자산·세션별 pending 명령과 ACK 상태기계
+
+- Red: 같은 command ID의 자산·세션 격리, 이전 세션 ACK 거부, 진행 ACK 유지,
+  종결 ACK, 전달 재전송, completion timeout, 명령 만료, 재시도 소진, 전체·자산별
+  용량과 이력 상한 테스트를 먼저 추가했다. `command_tracker.hpp` 부재로 빌드 실패를
+  확인했다.
+- Green: 복합 명령 키와 `awaiting_delivery`/`awaiting_completion` 상태를 갖는
+  `CommandTracker`를 구현했다. 재전송은 동일 datagram을 반환하며 각 종료 원인을
+  bounded outcome 이력에 보존한다.
+- Refactor: 상태 판정과 종결 결과 매핑을 분리하고, `poll`은 잠금 아래에서 snapshot만
+  만든 뒤 호출자가 네트워크 송신을 수행할 수 있게 했다.
+- 검증: command tracker 시험 6/6 통과.
