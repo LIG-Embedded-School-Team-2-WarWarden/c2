@@ -3,13 +3,62 @@
 #include "c2/udp_transport.hpp"
 
 #include <chrono>
+#include <charconv>
 #include <cstdint>
 #include <iostream>
+#include <limits>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <variant>
 
 namespace {
+struct Options {
+    std::string bind_address{"0.0.0.0"};
+    std::string c2_address{"127.0.0.1"};
+    std::uint16_t listen_port{5101};
+    std::uint16_t status_port{5001};
+    std::uint16_t target_port{5002};
+    std::uint64_t watchdog_timeout_ms{3'000};
+};
+
+template <typename Value>
+Value positive_number(const std::string_view text, const char* name) {
+    Value value{};
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || value == 0)
+        throw std::invalid_argument(std::string{"invalid "} + name);
+    return value;
+}
+
+std::uint16_t port(const std::string_view value) {
+    const auto parsed = positive_number<unsigned>(value, "UDP port");
+    if (parsed > std::numeric_limits<std::uint16_t>::max())
+        throw std::invalid_argument("invalid UDP port");
+    return static_cast<std::uint16_t>(parsed);
+}
+
+Options parse_options(const int argc, char* argv[]) {
+    Options options;
+    for (int index = 1; index < argc; index += 2) {
+        if (index + 1 >= argc) throw std::invalid_argument("option value is missing");
+        const std::string_view name{argv[index]};
+        const std::string value{argv[index + 1]};
+        if (name == "--bind") options.bind_address = value;
+        else if (name == "--listen-port") options.listen_port = port(value);
+        else if (name == "--c2-ip") options.c2_address = value;
+        else if (name == "--status-port") options.status_port = port(value);
+        else if (name == "--target-port") options.target_port = port(value);
+        else if (name == "--watchdog-timeout-ms")
+            options.watchdog_timeout_ms = positive_number<std::uint64_t>(value, "watchdog timeout");
+        else throw std::invalid_argument("unknown option: " + std::string{name});
+    }
+    if (options.watchdog_timeout_ms > std::numeric_limits<std::uint64_t>::max() / 1000U)
+        throw std::invalid_argument("watchdog timeout is too large");
+    return options;
+}
+
 std::uint64_t now_us() {
     return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count());
@@ -22,17 +71,20 @@ void send(c2::UdpTransport& transport, const Message& message, const c2::Endpoin
 }
 }  // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
     try {
-        const c2::Endpoint status_endpoint{"127.0.0.1", 5001};
-        const c2::Endpoint target_endpoint{"127.0.0.1", 5002};
+        const auto options = parse_options(argc, argv);
+        const c2::Endpoint status_endpoint{options.c2_address, options.status_port};
+        const c2::Endpoint target_endpoint{options.c2_address, options.target_port};
         c2::DummyObservationAsset asset(
             {{c2::protocol_version, 1, 1, c2::ComponentId::observation_asset,
               c2::ComponentId::command_and_control},
              c2::CoordinateFrame::project_frame, 0, 0, 1.5F, 0},
             {-180, 180, -90, 90});
         c2::UdpTransport* transport_ptr{};
-        c2::UdpTransport transport({"0.0.0.0", 5101}, [&](std::vector<std::byte> data, c2::Endpoint) {
+        c2::UdpTransport transport(
+            {options.bind_address, options.listen_port},
+            [&](std::vector<std::byte> data, c2::Endpoint) {
             const auto decoded = c2::protobuf::decode(data);
             if (!std::holds_alternative<c2::Envelope>(decoded)) return;
             const auto& payload = std::get<c2::Envelope>(decoded).payload;
@@ -46,7 +98,7 @@ int main() {
                     send(*transport_ptr, *result.error_report, status_endpoint);
                 send(*transport_ptr, asset.status(received), status_endpoint);
             }
-        });
+            });
         transport_ptr = &transport;
         transport.start();
         const auto started = std::chrono::steady_clock::now();
@@ -57,7 +109,8 @@ int main() {
                 const auto uptime = static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - started).count());
-                if (const auto report = asset.check_watchdog(now, 3'000'000))
+                if (const auto report = asset.check_watchdog(
+                        now, options.watchdog_timeout_ms * 1000U))
                     send(transport, *report, status_endpoint);
                 send(transport, asset.status(now), status_endpoint);
                 if (tick % 10 == 0) {
@@ -69,7 +122,8 @@ int main() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         });
-        std::cout << "Dummy observation asset started on UDP 5101. Type quit to stop.\n";
+        std::cout << "Dummy observation asset started on UDP " << options.listen_port
+                  << ". Type quit to stop.\n";
         std::string line;
         while (std::getline(std::cin, line) && line != "quit") {}
         publisher.request_stop();
