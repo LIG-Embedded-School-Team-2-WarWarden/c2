@@ -134,3 +134,25 @@ TEST(AssetRegistryTest, RejectsInvalidConfiguration) {
     EXPECT_THROW((void)c2::AssetRegistry({1, 0, 1}), std::invalid_argument);
     EXPECT_THROW((void)c2::AssetRegistry({1, 1, 0}), std::invalid_argument);
 }
+
+TEST(AssetRegistryTest, TracksHeartbeatTimeoutIndependentlyPerAsset) {
+    c2::AssetRegistry registry({4, 100, 10'000});
+    const auto first = registration(10, 1, c2::AssetRole::observation, 51'010, 10);
+    const auto second = registration(20, 1, c2::AssetRole::observation, 51'020, 10);
+    const c2::Endpoint first_endpoint{"10.0.0.1", 51'010};
+    const c2::Endpoint second_endpoint{"10.0.0.2", 51'020};
+    ASSERT_EQ(registry.register_asset(first, first_endpoint, 100),
+              c2::AssetRegistryResult::registered);
+    ASSERT_EQ(registry.register_asset(second, second_endpoint, 100),
+              c2::AssetRegistryResult::registered);
+    ASSERT_EQ(registry.observe_heartbeat(heartbeat(first, 1), first_endpoint, 110),
+              c2::AssetRegistryResult::stored);
+    ASSERT_EQ(registry.observe_heartbeat(heartbeat(second, 1), second_endpoint, 190),
+              c2::AssetRegistryResult::stored);
+
+    EXPECT_EQ(registry.connection_state(10, 211),
+              c2::AssetConnectionState::disconnected);
+    EXPECT_EQ(registry.connection_state(20, 211),
+              c2::AssetConnectionState::connected);
+    EXPECT_EQ(registry.connection_state(999, 211), std::nullopt);
+}
