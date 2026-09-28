@@ -34,15 +34,24 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
         throw std::invalid_argument("emergency stop repetitions must be non-zero");
     if (config_.command_ack_timeout_us == 0 || config_.command_max_attempts == 0)
         throw std::invalid_argument("command acknowledgement retry configuration is invalid");
+    if (config_.maximum_inbound_rejections == 0)
+        throw std::invalid_argument("inbound rejection history must be non-zero");
 }
 
 InboundResult ServerRuntime::ingest(
     const std::span<const std::byte> datagram, const Endpoint& source,
     const std::uint64_t received_at_us) {
     const auto decoded = protobuf::decode(datagram);
-    if (!std::holds_alternative<Envelope>(decoded))
+    if (!std::holds_alternative<Envelope>(decoded)) {
+        record_inbound_rejection(
+            InboundRejectionCategory::invalid_packet,
+            MessageKind::unspecified, nullptr,
+            AssetRegistryResult::invalid, received_at_us);
         return InboundResult::invalid_packet;
-    const auto& payload = std::get<Envelope>(decoded).payload;
+    }
+    const auto& envelope = std::get<Envelope>(decoded);
+    const auto kind = message_kind(envelope);
+    const auto& payload = envelope.payload;
     return std::visit(
         [&](const auto& message) -> InboundResult {
             using T = std::decay_t<decltype(message)>;
@@ -64,12 +73,19 @@ InboundResult ServerRuntime::ingest(
                                result == AssetRegistryResult::refreshed ||
                                result == AssetRegistryResult::session_replaced
                            ? InboundResult::accepted
-                           : InboundResult::rejected;
+                           : (record_inbound_rejection(
+                                  InboundRejectionCategory::registration,
+                                  kind, &message.header, result, received_at_us),
+                              InboundResult::rejected);
             } else if constexpr (std::is_same_v<T, AssetUnregister>) {
                 const auto result = registry_.unregister_asset(
                     message, source, received_at_us);
-                if (result != AssetRegistryResult::unregistered)
+                if (result != AssetRegistryResult::unregistered) {
+                    record_inbound_rejection(
+                        InboundRejectionCategory::authentication,
+                        kind, &message.header, result, received_at_us);
                     return InboundResult::rejected;
+                }
                 (void)command_tracker_.end_session(
                     message.header.asset_id, message.header.session_id,
                     received_at_us);
@@ -81,50 +97,92 @@ InboundResult ServerRuntime::ingest(
                 const auto result = registry_.observe_heartbeat(
                     message, source, received_at_us);
                 if (result != AssetRegistryResult::stored &&
-                    result != AssetRegistryResult::duplicate)
+                    result != AssetRegistryResult::duplicate) {
+                    record_inbound_rejection(
+                        InboundRejectionCategory::authentication,
+                        kind, &message.header, result, received_at_us);
                     return InboundResult::rejected;
+                }
             } else if constexpr (std::is_same_v<T, AssetPose>) {
                 const auto result = registry_.update_pose(
                     message, source, received_at_us);
                 if (result != AssetRegistryResult::stored &&
-                    result != AssetRegistryResult::duplicate)
+                    result != AssetRegistryResult::duplicate) {
+                    record_inbound_rejection(
+                        InboundRejectionCategory::authentication,
+                        kind, &message.header, result, received_at_us);
                     return InboundResult::rejected;
+                }
             } else if constexpr (std::is_same_v<T, TargetCoordinate>) {
-                if (registry_.authenticate(
-                        message.header, source, received_at_us) !=
-                    AssetRegistryResult::stored)
+                const auto authenticated = registry_.authenticate(
+                    message.header, source, received_at_us);
+                if (authenticated != AssetRegistryResult::stored) {
+                    record_inbound_rejection(
+                        InboundRejectionCategory::authentication,
+                        kind, &message.header, authenticated, received_at_us);
                     return InboundResult::rejected;
+                }
                 const auto result = tracks_.update(message, received_at_us);
-                return result.result == TrackUpdateResult::stored ||
-                               result.result == TrackUpdateResult::duplicate
-                           ? InboundResult::accepted
-                           : InboundResult::rejected;
+                if (result.result == TrackUpdateResult::stored ||
+                    result.result == TrackUpdateResult::duplicate)
+                    return InboundResult::accepted;
+                record_inbound_rejection(
+                    InboundRejectionCategory::state_update,
+                    kind, &message.header, AssetRegistryResult::invalid,
+                    received_at_us);
+                return InboundResult::rejected;
             } else if constexpr (std::is_same_v<T, CommandAck>) {
-                if (registry_.authenticate(
-                        message.header, source, received_at_us) !=
-                    AssetRegistryResult::stored)
+                const auto authenticated = registry_.authenticate(
+                    message.header, source, received_at_us);
+                if (authenticated != AssetRegistryResult::stored) {
+                    record_inbound_rejection(
+                        InboundRejectionCategory::authentication,
+                        kind, &message.header, authenticated, received_at_us);
                     return InboundResult::rejected;
+                }
                 const auto result = command_tracker_.observe(
                     message, received_at_us);
-                return result == AckUpdateResult::progress ||
-                               result == AckUpdateResult::terminal ||
-                               result == AckUpdateResult::duplicate
-                           ? InboundResult::accepted
-                           : InboundResult::rejected;
+                if (result == AckUpdateResult::progress ||
+                    result == AckUpdateResult::terminal ||
+                    result == AckUpdateResult::duplicate)
+                    return InboundResult::accepted;
+                record_inbound_rejection(
+                    InboundRejectionCategory::state_update,
+                    kind, &message.header, AssetRegistryResult::invalid,
+                    received_at_us);
+                return InboundResult::rejected;
             } else if constexpr (std::is_same_v<T, EffectorStatus>) {
                 const auto result = registry_.update_effector_status(
                     message, source, received_at_us);
-                return result == AssetRegistryResult::stored ||
-                               result == AssetRegistryResult::duplicate
-                           ? InboundResult::accepted
-                           : InboundResult::rejected;
+                if (result == AssetRegistryResult::stored ||
+                    result == AssetRegistryResult::duplicate)
+                    return InboundResult::accepted;
+                record_inbound_rejection(
+                    InboundRejectionCategory::authentication,
+                    kind, &message.header, result, received_at_us);
+                return InboundResult::rejected;
             } else if constexpr (std::is_same_v<T, ObservationStatus> ||
                                  std::is_same_v<T, ErrorReport>) {
-                if (registry_.authenticate(
-                        message.header, source, received_at_us) !=
-                    AssetRegistryResult::stored)
+                const auto authenticated = registry_.authenticate(
+                    message.header, source, received_at_us);
+                if (authenticated != AssetRegistryResult::stored) {
+                    record_inbound_rejection(
+                        InboundRejectionCategory::authentication,
+                        kind, &message.header, authenticated, received_at_us);
                     return InboundResult::rejected;
+                }
             } else {
+                if constexpr (std::is_same_v<T, std::monostate>) {
+                    record_inbound_rejection(
+                        InboundRejectionCategory::unsupported_message,
+                        kind, nullptr, AssetRegistryResult::invalid,
+                        received_at_us);
+                } else {
+                    record_inbound_rejection(
+                        InboundRejectionCategory::unsupported_message,
+                        kind, &message.header, AssetRegistryResult::invalid,
+                        received_at_us);
+                }
                 return InboundResult::unsupported_message;
             }
             return ingest(datagram, received_at_us);
@@ -585,6 +643,30 @@ std::vector<AssetAssignment> ServerRuntime::assignments() const {
 
 std::vector<CommandOutcome> ServerRuntime::command_outcomes() const {
     return command_tracker_.outcomes();
+}
+
+std::vector<InboundRejection> ServerRuntime::inbound_rejections() const {
+    std::lock_guard lock(inbound_rejection_mutex_);
+    return {inbound_rejections_.begin(), inbound_rejections_.end()};
+}
+
+void ServerRuntime::record_inbound_rejection(
+    const InboundRejectionCategory category, const MessageKind message_kind,
+    const MessageHeader* header, const AssetRegistryResult reason,
+    const std::uint64_t occurred_at_us) {
+    std::lock_guard lock(inbound_rejection_mutex_);
+    const auto event_id = next_inbound_rejection_id_;
+    next_inbound_rejection_id_ = event_id ==
+            std::numeric_limits<std::uint64_t>::max()
+        ? 1
+        : event_id + 1;
+    inbound_rejections_.push_back(
+        {event_id, category, message_kind,
+         header ? header->asset_id : 0,
+         header ? header->session_id : 0,
+         reason, occurred_at_us});
+    while (inbound_rejections_.size() > config_.maximum_inbound_rejections)
+        inbound_rejections_.pop_front();
 }
 
 std::vector<EffectorCandidate> ServerRuntime::effector_candidates(

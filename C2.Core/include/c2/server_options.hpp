@@ -36,6 +36,7 @@ struct ServerOptions {
     std::size_t maximum_command_outcomes{1'024};
     std::size_t maximum_assignments{256};
     std::size_t maximum_error_history{128};
+    std::size_t maximum_inbound_rejections{128};
     AssignmentScoreWeights assignment_weights;
     bool auto_reassignment_enabled{true};
     std::uint32_t emergency_stop_repetitions{3};

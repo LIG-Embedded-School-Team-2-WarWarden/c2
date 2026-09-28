@@ -18,7 +18,7 @@
 | SW-C2-008 관측 지향·탐색 | 자산별 SCAN/ABSOLUTE/STOP/HOME | 명령 검증, 상태전이, 중복 명령 | 완료 |
 | SW-C2-009 POINT/공격 안전명령 | 자산별 POINT/ARM/START/STOP/ESTOP | Pose/상태/정렬/무장/표적 일치, 공격 latch | 완료 |
 | SW-C2-010 명령 ACK 상태기계 | 자산·세션·command ID별 tracker | 진행/종결 ACK, 재전송, 만료, 완료 timeout, 경합 | 완료 |
-| SW-C2-011 운용 상태·결과 조회 | `assets`, `status`, `errors`, `outcomes` | assignment/outcome snapshot과 parser | 코어/콘솔 완료, GUI 미정 |
+| SW-C2-011 운용 상태·결과 조회 | `assets`, `status`, `errors`, `outcomes`, `events` | assignment/outcome/수신 거부 snapshot과 parser | 코어/콘솔 완료, GUI 미정 |
 | SW-C2-012 런타임 설정 | `ServerOptions`, `make_server_runtime_config` | 기본값 일관성, 0/overflow/상호모순 거부 | 완료 |
 | SW-C2-013 더미 다중 자산 | 동적 ID/session/port 등록 관측·타격 더미 | 2 관측 + 3 타격 실제 프로세스 smoke | 완료 |
 
