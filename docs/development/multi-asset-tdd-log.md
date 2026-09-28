@@ -210,7 +210,8 @@
   구현했다. 위치·자세·capability·구동 한계·lease 설정을 CLI로 외부화했다.
 - Refactor: `--asset-id`가 없는 기존 실행은 명시적 legacy migration 모드로 유지한다.
 - 검증: Release 전체 빌드 성공, 전체 시험 180/180 및 관측 2/타격 3 실제 프로세스
-  UDP smoke test 통과.
+  UDP smoke test 통과. 동일 asset ID의 타격 프로세스를 종료·재시작해 서로 다른
+  session으로 교체되는 것도 확인했다.
 
 ## Cycle 19 — POINT 자동 할당
 

@@ -123,10 +123,28 @@ try {
         $server.StandardInput.WriteLine($entry.Command)
         Start-Sleep -Milliseconds $entry.Delay
     }
+    $server.StandardInput.WriteLine('assets')
+    Start-Sleep -Milliseconds 100
+    $effector1.StandardInput.WriteLine('quit')
+    if (-not $effector1.WaitForExit(5000)) {
+        throw 'Original effector 201 did not exit for session replacement'
+    }
+    $effector1Restart = Start-RedirectedProcess $effectorPath @(
+        '--asset-id', '201', '--listen-port', '0', '--c2-port', '15000',
+        '--status-interval-ms', '80',
+        '--heartbeat-interval-ms', '300', '--registration-interval-ms', '500',
+        '--watchdog-timeout-ms', '4000'
+    )
+    $assets += $effector1Restart
+    $processes += $effector1Restart
+    Start-Sleep -Seconds 1
+    $server.StandardInput.WriteLine('assets')
     $server.StandardInput.WriteLine('status')
     $server.StandardInput.WriteLine('estop-all')
     $server.StandardInput.WriteLine('quit')
-    foreach ($asset in $assets) { $asset.StandardInput.WriteLine('quit') }
+    foreach ($asset in $assets) {
+        if (-not $asset.HasExited) { $asset.StandardInput.WriteLine('quit') }
+    }
 
     foreach ($process in $processes) {
         if (-not $process.WaitForExit(5000)) {
@@ -144,6 +162,12 @@ try {
         $serverOutput -notmatch 'estop assets=3 datagrams=12') {
         throw "Dynamic assets or emergency stop summary was incorrect.`n${serverOutput}`n${allErrors}"
     }
+    $sessions = [regex]::Matches(
+        $serverOutput, 'asset=201 role=2 session=(\d+)') |
+        ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
+    if ($sessions.Count -lt 2) {
+        throw "Effector 201 did not register a new session after restart.`n${serverOutput}`n${allErrors}"
+    }
     foreach ($process in $processes) {
         if ($process.ExitCode -ne 0) {
             throw "Process failed with exit code $($process.ExitCode): $($process.StartInfo.FileName)"
@@ -152,7 +176,7 @@ try {
     Assert-InvalidConfiguration $serverPath @('--heartbeat-interval-ms', '0') 'invalid heartbeat interval'
     Assert-InvalidConfiguration $observationPath @('--target-interval-ms', '0') 'invalid target interval'
     Assert-InvalidConfiguration $effectorPath @('--status-interval-ms', '0') 'invalid status interval'
-    Write-Host 'UDP process smoke test passed: 2 observations, 3 effectors, 2 tracks, automatic assignment, attack flow, estop-all.'
+    Write-Host 'UDP process smoke test passed: 2 observations, 3 effectors, session replacement, 2 tracks, automatic assignment, attack flow, estop-all.'
 } finally {
     foreach ($process in $processes) {
         if ($null -ne $process -and -not $process.HasExited) {
