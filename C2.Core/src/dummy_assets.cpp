@@ -35,12 +35,22 @@ DummyObservationAsset::DummyObservationAsset(
     if (!valid_limits(limits_)) throw std::invalid_argument("invalid observation limits");
     if (maximum_cached_results_ == 0)
         throw std::invalid_argument("maximum cached results must be non-zero");
+    asset_id_ = pose_.header.asset_id;
+    session_id_ = pose_.header.session_id;
     status_.state = ObservationState::standby;
 }
 
 ProcessedCommand DummyObservationAsset::handle(
     const ObservationTurretCommand& command, const std::uint64_t now_us) {
     std::lock_guard lock(mutex_);
+    if (command.header.asset_id != asset_id_ ||
+        command.header.session_id != session_id_) {
+        auto response = ack(command.command_id, CommandResult::rejected,
+                            dummy_error::invalid_command, now_us);
+        return {response, false,
+                error(dummy_error::invalid_command, ErrorSeverity::warning,
+                      command.command_id, "command identity mismatch", now_us)};
+    }
     if (const auto found = results_.find(command.command_id); found != results_.end())
         return {found->second, true, std::nullopt};
     if (latest_command_id_ && !newer_command(command.command_id, *latest_command_id_)) {
@@ -96,7 +106,8 @@ ProcessedCommand DummyObservationAsset::handle(
 MessageHeader DummyObservationAsset::header(const std::uint64_t now_us) {
     auto value = MessageHeader{protocol_version, sequence_, now_us,
                                ComponentId::observation_asset,
-                               ComponentId::command_and_control};
+                               ComponentId::command_and_control,
+                               asset_id_, session_id_};
     sequence_ = next(sequence_);
     return value;
 }
@@ -151,7 +162,9 @@ bool DummyObservationAsset::observe_control_heartbeat(
     const Heartbeat& value, const std::uint64_t received_at_us) {
     std::lock_guard lock(mutex_);
     if (!validate(value).valid() || value.header.source_id != ComponentId::command_and_control ||
-        value.header.destination_id != ComponentId::observation_asset || received_at_us == 0)
+        value.header.destination_id != ComponentId::observation_asset ||
+        value.header.asset_id != asset_id_ ||
+        value.header.session_id != session_id_ || received_at_us == 0)
         return false;
     last_control_heartbeat_us_ = received_at_us;
     watchdog_tripped_ = false;
@@ -182,12 +195,22 @@ DummyEffectorAsset::DummyEffectorAsset(
     if (!valid_limits(limits_)) throw std::invalid_argument("invalid effector limits");
     if (maximum_cached_results_ == 0)
         throw std::invalid_argument("maximum cached results must be non-zero");
+    asset_id_ = pose_.header.asset_id;
+    session_id_ = pose_.header.session_id;
     status_.state = EffectorState::standby;
 }
 
 ProcessedCommand DummyEffectorAsset::handle(
     const EffectorTurretCommand& command, const std::uint64_t now_us) {
     std::lock_guard lock(mutex_);
+    if (command.header.asset_id != asset_id_ ||
+        command.header.session_id != session_id_) {
+        auto response = ack(command.command_id, CommandResult::rejected,
+                            dummy_error::invalid_command, now_us);
+        return {response, false,
+                error(dummy_error::invalid_command, ErrorSeverity::warning,
+                      command.command_id, "command identity mismatch", now_us)};
+    }
     if (const auto found = results_.find(command.command_id); found != results_.end())
         return {found->second, true, std::nullopt};
     if (latest_command_id_ && !newer_command(command.command_id, *latest_command_id_)) {
@@ -233,6 +256,14 @@ ProcessedCommand DummyEffectorAsset::handle(
 ProcessedCommand DummyEffectorAsset::handle(
     const AttackCommand& command, const std::uint64_t now_us) {
     std::lock_guard lock(mutex_);
+    if (command.header.asset_id != asset_id_ ||
+        command.header.session_id != session_id_) {
+        auto response = ack(command.command_id, CommandResult::rejected,
+                            dummy_error::invalid_command, now_us);
+        return {response, false,
+                error(dummy_error::invalid_command, ErrorSeverity::error,
+                      command.command_id, "command identity mismatch", now_us)};
+    }
     if (const auto found = results_.find(command.command_id); found != results_.end())
         return {found->second, true, std::nullopt};
     if (latest_command_id_ && !newer_command(command.command_id, *latest_command_id_)) {
@@ -306,7 +337,8 @@ void DummyEffectorAsset::advance(const std::uint64_t now_us) {
 MessageHeader DummyEffectorAsset::header(const std::uint64_t now_us) {
     auto value = MessageHeader{protocol_version, sequence_, now_us,
                                ComponentId::effector_asset,
-                               ComponentId::command_and_control};
+                               ComponentId::command_and_control,
+                               asset_id_, session_id_};
     sequence_ = next(sequence_);
     return value;
 }
@@ -358,7 +390,9 @@ bool DummyEffectorAsset::observe_control_heartbeat(
     const Heartbeat& value, const std::uint64_t received_at_us) {
     std::lock_guard lock(mutex_);
     if (!validate(value).valid() || value.header.source_id != ComponentId::command_and_control ||
-        value.header.destination_id != ComponentId::effector_asset || received_at_us == 0)
+        value.header.destination_id != ComponentId::effector_asset ||
+        value.header.asset_id != asset_id_ ||
+        value.header.session_id != session_id_ || received_at_us == 0)
         return false;
     last_control_heartbeat_us_ = received_at_us;
     watchdog_tripped_ = false;
