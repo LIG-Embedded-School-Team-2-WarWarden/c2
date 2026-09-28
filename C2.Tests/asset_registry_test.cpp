@@ -147,6 +147,19 @@ TEST(AssetRegistryTest, RejectsInvalidConfiguration) {
     EXPECT_THROW((void)c2::AssetRegistry({0, 1, 1}), std::invalid_argument);
     EXPECT_THROW((void)c2::AssetRegistry({1, 0, 1}), std::invalid_argument);
     EXPECT_THROW((void)c2::AssetRegistry({1, 1, 0}), std::invalid_argument);
+    EXPECT_THROW((void)c2::AssetRegistry({1, 1, 1, 1, 0}),
+                 std::invalid_argument);
+}
+
+TEST(AssetRegistryTest, RejectsLeaseBeyondServerPolicy) {
+    c2::AssetRegistry registry({2, 1'000, 10'000, 100, 5'000});
+    auto asset = registration(
+        10, 1, c2::AssetRole::observation, 51'010, 5'001);
+    EXPECT_EQ(registry.register_asset(asset, {"10.0.0.1", 40'010}, 100),
+              c2::AssetRegistryResult::invalid);
+    asset.lease_duration_ms = 5'000;
+    EXPECT_EQ(registry.register_asset(asset, {"10.0.0.1", 40'010}, 100),
+              c2::AssetRegistryResult::registered);
 }
 
 TEST(AssetRegistryTest, TracksHeartbeatTimeoutIndependentlyPerAsset) {

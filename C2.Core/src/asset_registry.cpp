@@ -29,13 +29,17 @@ AssetRegistry::AssetRegistry(const AssetRegistryConfig config) : config_(config)
         throw std::invalid_argument("retired retention must be non-zero");
     if (config_.status_timeout_us == 0)
         throw std::invalid_argument("status timeout must be non-zero");
+    if (config_.maximum_lease_duration_ms == 0)
+        throw std::invalid_argument("maximum registration lease must be non-zero");
 }
 
 AssetRegistryResult AssetRegistry::register_asset(
     const AssetRegistration& registration,
     const Endpoint& source,
     const std::uint64_t received_at_us) {
-    if (!validate(registration).valid() || source.address.empty() || source.port == 0 ||
+    if (!validate(registration).valid() ||
+        registration.lease_duration_ms > config_.maximum_lease_duration_ms ||
+        source.address.empty() || source.port == 0 ||
         received_at_us == 0)
         return AssetRegistryResult::invalid;
 

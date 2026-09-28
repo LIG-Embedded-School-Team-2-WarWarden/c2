@@ -76,6 +76,7 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 | `--heartbeat-interval-ms` | 1000 | C2 Heartbeat 송신 주기 |
 | `--heartbeat-timeout-ms` | 3000 | 자산 통신 단절 판단시간 |
 | `--retired-retention-ms` | 60000 | 해제·만료 자산 안전명령 Endpoint 보존시간 |
+| `--max-registration-lease-ms` | 60000 | 자산이 광고할 수 있는 최대 등록 lease |
 | `--status-timeout-ms` | 1000 | 타격 상태 최신성 제한 |
 | `--command-validity-ms` | 500 | 생성 명령 유효시간 |
 | `--ack-timeout-ms` | 200 | delivery ACK 전 재전송 대기시간 |
