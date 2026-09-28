@@ -237,8 +237,14 @@ ObservationDispatchResult ServerRuntime::command_observation(
 
 EffectorDispatchResult ServerRuntime::point_effector(
     const std::uint64_t target_id, const std::uint64_t now_us) {
-    if (const auto assignment = assignments_.assignment(target_id);
-        assignment && assignment->state == AssignmentResult::assigned) {
+    auto assignment = assignments_.assignment(target_id);
+    if (!assignment && tracks_.track(target_id, now_us)) {
+        const auto decision = assign(target_id, now_us);
+        if (decision.result != AssignmentResult::assigned)
+            return DispatchError::command_rejected;
+        assignment = decision.assignment;
+    }
+    if (assignment && assignment->state == AssignmentResult::assigned) {
         const auto track = tracks_.track(target_id, now_us);
         const auto asset = registry_.asset(assignment->effector_asset_id, now_us);
         if (!track || !asset || asset->session_id != assignment->effector_session_id ||

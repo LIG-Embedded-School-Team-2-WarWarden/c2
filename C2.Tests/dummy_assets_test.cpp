@@ -52,6 +52,20 @@ TEST(DummyAssetsTest, GenerateValidPoseStatusHeartbeatAndTarget){
  c2::DummyObservationAsset observation(pose(c2::ComponentId::observation_asset),{-90,90,-20,45});c2::DummyEffectorAsset effector(pose(c2::ComponentId::effector_asset));
  EXPECT_TRUE(c2::validate(observation.asset_pose(10)).valid());EXPECT_TRUE(c2::validate(observation.status(11)).valid());EXPECT_TRUE(c2::validate(observation.heartbeat(12,2)).valid());EXPECT_TRUE(c2::validate(observation.target(1,1,2,3,0.5F,13)).valid());EXPECT_TRUE(c2::validate(effector.asset_pose(10)).valid());EXPECT_TRUE(c2::validate(effector.status(11)).valid());EXPECT_TRUE(c2::validate(effector.heartbeat(12,2)).valid());
 }
+TEST(DummyAssetsTest, PreservesIdentityAndRejectsOtherAssetOrSessionCommands){
+ auto observation_pose=pose(c2::ComponentId::observation_asset);observation_pose.header.asset_id=101;observation_pose.header.session_id=7;
+ auto effector_pose=pose(c2::ComponentId::effector_asset);effector_pose.header.asset_id=201;effector_pose.header.session_id=9;
+ c2::DummyObservationAsset observation(observation_pose,{-90,90,-20,45});
+ c2::DummyEffectorAsset effector(effector_pose);
+ for(const auto& value:{observation.asset_pose(10).header,observation.status(11).header,observation.heartbeat(12,1).header,observation.target(1,1,2,3,1,13).header}){EXPECT_EQ(value.asset_id,101U);EXPECT_EQ(value.session_id,7U);}
+ for(const auto& value:{effector.asset_pose(10).header,effector.status(11).header,effector.heartbeat(12,1).header}){EXPECT_EQ(value.asset_id,201U);EXPECT_EQ(value.session_id,9U);}
+ c2::ObservationTurretCommand scan{{c2::protocol_version,1,20,c2::ComponentId::command_and_control,c2::ComponentId::observation_asset,999,7},1,c2::ObservationTurretCommandType::scan,10,0,100};
+ EXPECT_EQ(observation.handle(scan,21).acknowledgement.result,c2::CommandResult::rejected);
+ c2::EffectorTurretCommand point{{c2::protocol_version,1,20,c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,201,999},1,1,10,0,100};
+ EXPECT_EQ(effector.handle(point,21).acknowledgement.result,c2::CommandResult::rejected);
+ c2::Heartbeat wrong{{c2::protocol_version,1,20,c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,201,8},c2::AssetOperatingState::operating,1,20};
+ EXPECT_FALSE(effector.observe_control_heartbeat(wrong,21));
+}
 TEST(DummyAssetsTest, StopsActiveWorkWhenControlHeartbeatTimesOut){
  c2::DummyObservationAsset observation(pose(c2::ComponentId::observation_asset),{-90,90,-20,45});
  c2::DummyEffectorAsset effector(pose(c2::ComponentId::effector_asset));

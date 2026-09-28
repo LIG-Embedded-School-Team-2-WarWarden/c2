@@ -525,15 +525,11 @@ TEST(ServerRuntimeAssignmentTest, AssignsNearestEffectorAndReassignsAfterHeartbe
         7, 104, c2::CoordinateFrame::project_frame, 10, 0, 0, 0.9F};
     ASSERT_EQ(server.ingest(bytes(target), observer_source, 104), c2::InboundResult::accepted);
 
-    const auto decision = server.assign(1, 105);
-    ASSERT_EQ(decision.result, c2::AssignmentResult::assigned);
-    ASSERT_TRUE(decision.assignment.has_value());
-    EXPECT_EQ(decision.assignment->effector_asset_id, 201U);
-    EXPECT_FALSE(decision.assignment->manually_selected);
-    EXPECT_EQ(server.assignment(1)->effector_asset_id, 201U);
-
-    const auto point = server.point_effector(1, 106);
+    const auto point = server.point_effector(1, 105);
     ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(point));
+    ASSERT_TRUE(server.assignment(1).has_value());
+    EXPECT_EQ(server.assignment(1)->effector_asset_id, 201U);
+    EXPECT_FALSE(server.assignment(1)->manually_selected);
     ASSERT_EQ(sent.size(), 1U);
     EXPECT_EQ(sent.front().endpoint.address, near_source.address);
     EXPECT_EQ(sent.front().endpoint.port, 60'201);

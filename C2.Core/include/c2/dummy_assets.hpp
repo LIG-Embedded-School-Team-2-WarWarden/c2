@@ -49,6 +49,8 @@ private:
         std::uint32_t command_id, std::string detail, std::uint64_t now_us);
     void remember(std::uint32_t command_id, const CommandAck& result);
     AssetPose pose_;
+    std::uint64_t asset_id_{};
+    std::uint64_t session_id_{};
     ObservationTurretLimits limits_;
     ObservationStatus status_;
     std::uint32_t sequence_{1};
@@ -85,6 +87,8 @@ private:
     void remember(std::uint32_t command_id, const CommandAck& result);
     void advance(std::uint64_t now_us);
     AssetPose pose_;
+    std::uint64_t asset_id_{};
+    std::uint64_t session_id_{};
     ObservationTurretLimits limits_;
     EffectorStatus status_;
     std::uint64_t current_target_id_{};

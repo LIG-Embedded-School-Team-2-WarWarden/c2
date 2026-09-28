@@ -190,3 +190,36 @@
   전환이 완료될 때까지 명시적 migration 경계로 분리했다.
 - 검증: Release 전체 빌드 성공, loopback 통합시험과 기존 프로세스 smoke test 포함
   전체 179/179 통과.
+
+## Cycle 17 — 더미 자산·세션 격리
+
+- Red: non-default 자산·세션으로 생성한 더미가 모든 Pose/status/Heartbeat/target/ACK에
+  동일 ID를 유지하고, 다른 자산 또는 세션 대상 명령과 C2 Heartbeat를 거부하는
+  테스트를 먼저 추가했다. 기존 구현이 헤더를 1/1로 되돌리고 잘못된 명령을 실행하는
+  실패를 확인했다.
+- Green: 생성 Pose의 identity를 더미 내부 불변 상태로 저장하고 모든 발신 헤더에
+  적용했다. 명령 deduplication보다 먼저 목적 자산·세션을 검사한다.
+- Refactor: 관측/타격 더미의 watchdog Heartbeat에도 같은 identity 검증을 적용했다.
+
+## Cycle 18 — 다중 더미 프로세스 동적 등록
+
+- Red: 기존 프로세스 smoke를 관측 2대와 타격 3대, 공용 등록 포트, 동적 command
+  port, 전역 track 2개, 자동 할당과 ESTOP-ALL 시나리오로 확장했다.
+- Green: `--asset-id` 동적 모드에서 새 session ID 생성, port 0의 실제 할당 포트 광고,
+  주기적 등록 갱신, Pose/status/Heartbeat/target 공용 포트 전송과 종료 unregister를
+  구현했다. 위치·자세·capability·구동 한계·lease 설정을 CLI로 외부화했다.
+- Refactor: `--asset-id`가 없는 기존 실행은 명시적 legacy migration 모드로 유지한다.
+- 검증: Release 전체 빌드 성공, 전체 시험 180/180 및 관측 2/타격 3 실제 프로세스
+  UDP smoke test 통과. 동일 asset ID의 타격 프로세스를 종료·재시작해 서로 다른
+  session으로 교체되는 것도 확인했다.
+
+## Cycle 19 — POINT 자동 할당
+
+- Red: 사전 `assign` 없이 `point TRACK_ID`를 호출하면 가장 가까운 건강한 자산을
+  자동 할당하고 그 Endpoint로 지향 명령을 보내는 테스트로 변경해 기존 고정 자산
+  fallback 실패를 확인했다.
+- Green: 유효한 전역 track이지만 할당이 없으면 runtime이 원자적 자동 할당을 먼저
+  수행하고 동일 호출에서 POINT를 전송하도록 했다.
+- Refactor: legacy detection ID는 TrackStore에 없으므로 기존 단일 자산 지향 경로로
+  계속 분기된다. 다중 프로세스 smoke에서 명시적 assign을 제거해 자동 경로를 검증했다.
+- 검증: Release 전체 빌드, 전체 시험 180/180, 다중 프로세스 smoke 통과.
