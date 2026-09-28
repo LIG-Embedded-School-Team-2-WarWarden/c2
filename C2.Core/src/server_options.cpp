@@ -2,6 +2,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 
@@ -39,6 +40,22 @@ std::uint64_t microseconds(
         throw std::invalid_argument(std::string{name} + " is too large");
     return milliseconds * 1000U;
 }
+
+double non_negative_number(const std::string_view text, const char* name) {
+    double value{};
+    const auto result = std::from_chars(
+        text.data(), text.data() + text.size(), value);
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size() ||
+        !std::isfinite(value) || value < 0)
+        throw std::invalid_argument(std::string{"invalid "} + name);
+    return value;
+}
+
+bool boolean_value(const std::string_view text, const char* name) {
+    if (text == "true") return true;
+    if (text == "false") return false;
+    throw std::invalid_argument(std::string{"invalid "} + name);
+}
 }  // namespace
 
 ServerOptions parse_server_options(
@@ -74,6 +91,13 @@ ServerOptions parse_server_options(
         else if (name == "--max-pending-per-asset") options.maximum_pending_per_asset = positive_number<std::size_t>(value, "per-asset pending commands");
         else if (name == "--max-command-outcomes") options.maximum_command_outcomes = positive_number<std::size_t>(value, "maximum command outcomes");
         else if (name == "--max-assignments") options.maximum_assignments = positive_number<std::size_t>(value, "maximum assignments");
+        else if (name == "--max-error-history") options.maximum_error_history = positive_number<std::size_t>(value, "maximum error history");
+        else if (name == "--distance-weight") options.assignment_weights.distance_weight = non_negative_number(value, "distance weight");
+        else if (name == "--rotation-weight") options.assignment_weights.rotation_weight = non_negative_number(value, "rotation weight");
+        else if (name == "--assignment-weight") options.assignment_weights.assignment_weight = non_negative_number(value, "assignment weight");
+        else if (name == "--degraded-penalty") options.assignment_weights.degraded_penalty = non_negative_number(value, "degraded penalty");
+        else if (name == "--failure-weight") options.assignment_weights.failure_weight = non_negative_number(value, "failure weight");
+        else if (name == "--auto-reassign") options.auto_reassignment_enabled = boolean_value(value, "auto reassign");
         else if (name == "--emergency-stop-repetitions") options.emergency_stop_repetitions = positive_number<std::uint32_t>(value, "emergency stop repetitions");
         else throw std::invalid_argument("unknown option: " + std::string{name});
     }
@@ -127,6 +151,10 @@ ServerRuntimeConfig make_server_runtime_config(const ServerOptions& options) {
         options.command_attempts, options.maximum_pending_commands,
         options.maximum_pending_per_asset, options.maximum_command_outcomes};
     config.assignments.maximum_assignments = options.maximum_assignments;
+    config.assignments.weights = options.assignment_weights;
+    config.assignments.auto_reassignment_enabled =
+        options.auto_reassignment_enabled;
+    config.maximum_error_history = options.maximum_error_history;
     return config;
 }
 }  // namespace c2

@@ -38,6 +38,7 @@ struct ServerRuntimeConfig {
     TrackStoreConfig tracks;
     CommandTrackerConfig commands;
     AssetAssignmentConfig assignments;
+    std::size_t maximum_error_history{128};
 };
 
 struct CommandRetryResult {

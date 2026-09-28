@@ -240,6 +240,23 @@ TEST(ServerRuntimeTest, ExposesConnectionsAndCurrentTargetsForOperatorDisplay) {
     EXPECT_EQ(targets.front().detection_id, 7U);
 }
 
+TEST(ServerRuntimeTest, AppliesConfiguredErrorHistoryLimit) {
+    auto runtime_config = config();
+    runtime_config.maximum_error_history = 2;
+    c2::ServerRuntime server(runtime_config, [](auto, auto) {});
+    for (std::uint32_t sequence = 1; sequence <= 3; ++sequence) {
+        c2::ErrorReport error{
+            header(c2::ComponentId::observation_asset, sequence, 10 + sequence),
+            sequence, c2::ErrorSeverity::warning, 0, 10 + sequence, "test"};
+        ASSERT_EQ(server.ingest(bytes(error), 100 + sequence),
+                  c2::InboundResult::accepted);
+    }
+    const auto errors = server.errors();
+    ASSERT_EQ(errors.size(), 2U);
+    EXPECT_EQ(errors.front().error_code, 2U);
+    EXPECT_EQ(errors.back().error_code, 3U);
+}
+
 TEST(ServerRuntimeTest, ExposesAssignmentAndCommandOutcomeSnapshots) {
     auto runtime_config = config();
     runtime_config.commands = {10, 50, 1, 8, 4, 16};

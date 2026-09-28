@@ -246,3 +246,13 @@
 - Refactor: 0, 시간 변환 overflow, 전체 상한보다 큰 자산별 상한을 서버 시작 전에
   일관되게 거부하고 레거시/동적 경로의 공통 옵션값을 한 곳에서 생성한다.
 - 검증: Release 전체 빌드, 전체 시험 187/187, 다중 프로세스 smoke 통과.
+
+## Cycle 22 — 할당 정책과 오류 이력 실행 설정
+
+- Red: 점수 가중치와 자동 재할당 정책이 실행 옵션에 없고 runtime 오류 이력 상한이
+  고정된 문제를 config 전파, 재할당 비활성화, bounded 오류 이력 테스트로 재현했다.
+- Green: 다섯 점수 가중치, `--auto-reassign`, `--max-error-history`를 옵션과 runtime
+  config에 연결했다. 자동 재할당을 끄면 상실한 할당을 유지해 운용자 판단을 기다린다.
+- Refactor: 유한한 0 이상 실수와 명시적 true/false만 parser 경계에서 허용하고
+  TelemetryStore 용량도 runtime 생성 시 주입한다.
+- 검증: Release 전체 빌드, 전체 시험 189/189, 다중 프로세스 smoke 통과.
