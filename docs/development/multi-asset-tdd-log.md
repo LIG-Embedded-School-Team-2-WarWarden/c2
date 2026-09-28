@@ -256,3 +256,13 @@
 - Refactor: 유한한 0 이상 실수와 명시적 true/false만 parser 경계에서 허용하고
   TelemetryStore 용량도 runtime 생성 시 주입한다.
 - 검증: Release 전체 빌드, 전체 시험 189/189, 다중 프로세스 smoke 통과.
+
+## Cycle 23 — C2 수신 거부 이벤트 이력
+
+- Red: 미등록 Heartbeat와 Endpoint 불일치 패킷을 거부해도 사후 조회할 C2 이벤트가
+  없고 이력 상한도 설정할 수 없는 문제를 runtime/console/config 테스트로 고정했다.
+- Green: 등록·인증·상태 갱신 거부를 자산, 세션, 메시지 종류, registry 판단 사유,
+  C2 수신 시각과 함께 bounded 이력으로 기록하고 `events` 명령으로 공개했다.
+- Refactor: 명령 timeout/소진은 기존 `outcomes`, 자산 보고 오류는 기존 `errors`, C2
+  수신 거부는 `events`로 책임을 분리했다. source IP는 이력에 보관하지 않는다.
+- 검증: Release 전체 빌드, 전체 시험 189/189, 다중 프로세스 smoke 통과.

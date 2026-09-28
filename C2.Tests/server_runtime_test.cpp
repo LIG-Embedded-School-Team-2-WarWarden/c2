@@ -377,7 +377,9 @@ TEST(ServerRuntimeRegistrationTest, RegistersAssetsFromActualSourceAndAdvertised
 }
 
 TEST(ServerRuntimeRegistrationTest, RejectsUnregisteredAndEndpointMismatchPackets) {
-    c2::ServerRuntime server(config(), [](auto, auto) {});
+    auto runtime_config = config();
+    runtime_config.maximum_inbound_rejections = 1;
+    c2::ServerRuntime server(runtime_config, [](auto, auto) {});
     const auto asset = registration(101, 10, c2::AssetRole::observation, 51'101);
     const c2::Endpoint source{"10.10.0.7", 40'001};
 
@@ -390,6 +392,15 @@ TEST(ServerRuntimeRegistrationTest, RejectsUnregisteredAndEndpointMismatchPacket
               c2::InboundResult::rejected);
     EXPECT_EQ(server.ingest(bytes(heartbeat(asset, 2)), source, 103),
               c2::InboundResult::accepted);
+
+    const auto rejections = server.inbound_rejections();
+    ASSERT_EQ(rejections.size(), 1U);
+    EXPECT_EQ(rejections.front().asset_id, 101U);
+    EXPECT_EQ(rejections.front().session_id, 10U);
+    EXPECT_EQ(rejections.front().message_kind, c2::MessageKind::heartbeat);
+    EXPECT_EQ(rejections.front().reason,
+              c2::AssetRegistryResult::endpoint_mismatch);
+    EXPECT_EQ(rejections.front().occurred_at_us, 102U);
 }
 
 TEST(ServerRuntimeRegistrationTest, ReplacesSessionAndRejectsOldSessionTraffic) {

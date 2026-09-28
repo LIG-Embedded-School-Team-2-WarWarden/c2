@@ -92,6 +92,7 @@ ServerOptions parse_server_options(
         else if (name == "--max-command-outcomes") options.maximum_command_outcomes = positive_number<std::size_t>(value, "maximum command outcomes");
         else if (name == "--max-assignments") options.maximum_assignments = positive_number<std::size_t>(value, "maximum assignments");
         else if (name == "--max-error-history") options.maximum_error_history = positive_number<std::size_t>(value, "maximum error history");
+        else if (name == "--max-inbound-rejections") options.maximum_inbound_rejections = positive_number<std::size_t>(value, "maximum inbound rejections");
         else if (name == "--distance-weight") options.assignment_weights.distance_weight = non_negative_number(value, "distance weight");
         else if (name == "--rotation-weight") options.assignment_weights.rotation_weight = non_negative_number(value, "rotation weight");
         else if (name == "--assignment-weight") options.assignment_weights.assignment_weight = non_negative_number(value, "assignment weight");
@@ -155,6 +156,7 @@ ServerRuntimeConfig make_server_runtime_config(const ServerOptions& options) {
     config.assignments.auto_reassignment_enabled =
         options.auto_reassignment_enabled;
     config.maximum_error_history = options.maximum_error_history;
+    config.maximum_inbound_rejections = options.maximum_inbound_rejections;
     return config;
 }
 }  // namespace c2

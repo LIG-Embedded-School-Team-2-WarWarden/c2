@@ -60,6 +60,37 @@ std::string_view outcome_name(const c2::CommandTerminalState state) {
     }
     return "UNKNOWN";
 }
+
+std::string_view rejection_category_name(
+    const c2::InboundRejectionCategory category) {
+    switch (category) {
+        case c2::InboundRejectionCategory::invalid_packet: return "INVALID_PACKET";
+        case c2::InboundRejectionCategory::unsupported_message: return "UNSUPPORTED_MESSAGE";
+        case c2::InboundRejectionCategory::registration: return "REGISTRATION";
+        case c2::InboundRejectionCategory::authentication: return "AUTHENTICATION";
+        case c2::InboundRejectionCategory::state_update: return "STATE_UPDATE";
+    }
+    return "UNKNOWN";
+}
+
+std::string_view registry_result_name(const c2::AssetRegistryResult result) {
+    switch (result) {
+        case c2::AssetRegistryResult::registered: return "REGISTERED";
+        case c2::AssetRegistryResult::refreshed: return "REFRESHED";
+        case c2::AssetRegistryResult::session_replaced: return "SESSION_REPLACED";
+        case c2::AssetRegistryResult::stored: return "STORED";
+        case c2::AssetRegistryResult::duplicate: return "DUPLICATE";
+        case c2::AssetRegistryResult::stale: return "STALE";
+        case c2::AssetRegistryResult::unregistered: return "UNREGISTERED";
+        case c2::AssetRegistryResult::invalid: return "INVALID";
+        case c2::AssetRegistryResult::not_registered: return "NOT_REGISTERED";
+        case c2::AssetRegistryResult::session_mismatch: return "SESSION_MISMATCH";
+        case c2::AssetRegistryResult::endpoint_mismatch: return "ENDPOINT_MISMATCH";
+        case c2::AssetRegistryResult::role_mismatch: return "ROLE_MISMATCH";
+        case c2::AssetRegistryResult::capacity_exceeded: return "CAPACITY_EXCEEDED";
+    }
+    return "UNKNOWN";
+}
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -118,7 +149,7 @@ int main(int argc, char* argv[]) {
                      "obs-home OBS_ID, assign TRACK_ID [EFFECTOR_ID], unassign TRACK_ID, "
                      "point TRACK_ID, arm TRACK_ID, start TRACK_ID MS, "
                      "stop EFFECTOR_ID, estop EFFECTOR_ID, estop-all, status, "
-                     "errors, outcomes, quit\n";
+                     "errors, outcomes, events, quit\n";
         std::string line;
         while (std::cout << "> " && std::getline(std::cin, line)) {
             const auto parsed = c2::parse_console_command(line);
@@ -294,6 +325,21 @@ int main(int argc, char* argv[]) {
                                   << " command=" << outcome.key.command_id
                                   << " state=" << outcome_name(outcome.state)
                                   << " ended_us=" << outcome.ended_at_us << '\n';
+                    break;
+                }
+                case c2::ConsoleCommandKind::events: {
+                    const auto events = runtime.inbound_rejections();
+                    if (events.empty()) std::cout << "no inbound rejection events\n";
+                    for (const auto& event : events)
+                        std::cout << "event=" << event.event_id
+                                  << " category="
+                                  << rejection_category_name(event.category)
+                                  << " message="
+                                  << static_cast<std::uint32_t>(event.message_kind)
+                                  << " asset=" << event.asset_id
+                                  << " session=" << event.session_id
+                                  << " reason=" << registry_result_name(event.reason)
+                                  << " occurred_us=" << event.occurred_at_us << '\n';
                     break;
                 }
             }

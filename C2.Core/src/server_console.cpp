@@ -24,6 +24,7 @@ ConsoleParseResult parse_console_command(const std::string_view line) {
     else if (name == "status") command.kind = ConsoleCommandKind::status;
     else if (name == "errors") command.kind = ConsoleCommandKind::errors;
     else if (name == "outcomes") command.kind = ConsoleCommandKind::outcomes;
+    else if (name == "events") command.kind = ConsoleCommandKind::events;
     else if (name == "quit") command.kind = ConsoleCommandKind::quit;
     else if (name == "estop-all") command.kind = ConsoleCommandKind::emergency_stop_all;
     else if (name == "scan" || name == "observe") {

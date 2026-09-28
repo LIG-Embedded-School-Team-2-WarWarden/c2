@@ -23,6 +23,7 @@ TEST(ServerOptionsTest, ParsesAndPropagatesDynamicRuntimeLimits) {
         "--max-command-outcomes", "400",
         "--max-assignments", "100",
         "--max-error-history", "50",
+        "--max-inbound-rejections", "75",
         "--distance-weight", "2.5",
         "--rotation-weight", "3",
         "--assignment-weight", "125",
@@ -53,6 +54,7 @@ TEST(ServerOptionsTest, ParsesAndPropagatesDynamicRuntimeLimits) {
     EXPECT_EQ(runtime.commands.maximum_outcomes, 400U);
     EXPECT_EQ(runtime.assignments.maximum_assignments, 100U);
     EXPECT_EQ(runtime.maximum_error_history, 50U);
+    EXPECT_EQ(runtime.maximum_inbound_rejections, 75U);
     EXPECT_DOUBLE_EQ(runtime.assignments.weights.distance_weight, 2.5);
     EXPECT_DOUBLE_EQ(runtime.assignments.weights.rotation_weight, 3.0);
     EXPECT_DOUBLE_EQ(runtime.assignments.weights.assignment_weight, 125.0);

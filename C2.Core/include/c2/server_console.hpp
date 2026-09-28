@@ -24,6 +24,7 @@ enum class ConsoleCommandKind {
     status,
     errors,
     outcomes,
+    events,
     quit,
 };
 

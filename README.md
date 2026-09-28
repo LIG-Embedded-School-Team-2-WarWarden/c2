@@ -86,6 +86,7 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 | `--max-command-outcomes` | 1024 | 명령 종결 이력 상한 |
 | `--max-assignments` | 256 | 할당 이력 상한 |
 | `--max-error-history` | 128 | 자산 ErrorReport 이력 상한 |
+| `--max-inbound-rejections` | 128 | C2 수신 거부 이벤트 이력 상한 |
 | `--distance-weight` | 1 | 할당 거리 점수 가중치 |
 | `--rotation-weight` | 1 | 할당 회전량 점수 가중치 |
 | `--assignment-weight` | 100 | 기존 작업 수 penalty 가중치 |
@@ -116,6 +117,7 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 | `status` | 자산·트랙·할당·pending 명령 요약 |
 | `errors` | 자산이 송신한 오류 이력 조회 |
 | `outcomes` | 완료·거부·실패·만료·재시도 소진·세션 종료 결과 조회 |
+| `events` | 등록·인증·Endpoint/session·상태 갱신 거부 이벤트 조회 |
 | `quit` | 서버 정상 종료 |
 
 일반 명령은 등록 lease, Heartbeat 연결, 새 세션의 `AssetPose` 재동기화와 상태

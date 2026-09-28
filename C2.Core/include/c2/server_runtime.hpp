@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <deque>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -39,6 +40,25 @@ struct ServerRuntimeConfig {
     CommandTrackerConfig commands;
     AssetAssignmentConfig assignments;
     std::size_t maximum_error_history{128};
+    std::size_t maximum_inbound_rejections{128};
+};
+
+enum class InboundRejectionCategory {
+    invalid_packet,
+    unsupported_message,
+    registration,
+    authentication,
+    state_update,
+};
+
+struct InboundRejection {
+    std::uint64_t event_id{};
+    InboundRejectionCategory category{InboundRejectionCategory::invalid_packet};
+    MessageKind message_kind{MessageKind::unspecified};
+    std::uint64_t asset_id{};
+    std::uint64_t session_id{};
+    AssetRegistryResult reason{AssetRegistryResult::invalid};
+    std::uint64_t occurred_at_us{};
 };
 
 struct CommandRetryResult {
@@ -110,6 +130,7 @@ public:
         std::uint64_t track_id) const;
     [[nodiscard]] std::vector<AssetAssignment> assignments() const;
     [[nodiscard]] std::vector<CommandOutcome> command_outcomes() const;
+    [[nodiscard]] std::vector<InboundRejection> inbound_rejections() const;
     [[nodiscard]] std::optional<ObservationStatus> observation_status() const;
     [[nodiscard]] std::optional<EffectorStatus> effector_status() const;
     [[nodiscard]] std::optional<CommandAck> acknowledgement(
@@ -137,6 +158,10 @@ private:
         std::uint32_t repetitions, std::uint64_t now_us);
     void assign_effector_identity(EffectorTurretCommand& command);
     void assign_effector_identity(AttackCommand& command);
+    void record_inbound_rejection(
+        InboundRejectionCategory category, MessageKind message_kind,
+        const MessageHeader* header, AssetRegistryResult reason,
+        std::uint64_t occurred_at_us);
 
     ServerRuntimeConfig config_;
     DatagramSender sender_;
@@ -172,5 +197,8 @@ private:
     static std::uint64_t pending_key(ComponentId source, std::uint32_t command_id) noexcept;
     mutable std::mutex pending_mutex_;
     std::unordered_map<std::uint64_t, PendingCommand> pending_commands_;
+    mutable std::mutex inbound_rejection_mutex_;
+    std::deque<InboundRejection> inbound_rejections_;
+    std::uint64_t next_inbound_rejection_id_{1};
 };
 }  // namespace c2
