@@ -1,29 +1,47 @@
 # C2
 
-MFS 시연 체계의 C++20 기반 통제소 서버다. UDP/Protobuf 수신, 자산·표적 상태
-관리, 관측 터렛 제어, 타격 지향 계산 및 공격 안전조건 검사를 제공한다.
+MFS 시연 체계의 C++20 기반 통제소 서버다. 임의 개수의 관측·타격 자산을
+동적으로 등록하고, 관측 결과를 전역 트랙으로 관리하며, 안전 조건을 만족하는
+타격 자산을 자동 또는 수동으로 할당한다. UDP/Protobuf v2 메시지 계약은
+`protocol/mfs.proto`, 설계 결정은 `docs/decisions/`에서 관리한다.
 
 ## 좌표계 책임
 
-1. 관측 자산이 센서·터렛 로컬 좌표를 `PROJECT_FRAME` 월드좌표로 변환한다.
-2. 관측 자산이 변환된 좌표를 `TargetCoordinate`로 전송한다.
-3. 통제소는 관측 자산 `AssetPose`를 표적에 다시 적용하지 않는다.
-4. 통제소는 타격 자산 `AssetPose`만 사용해 상대좌표와 Pan/Tilt를 계산한다.
-5. 계산 결과를 `EffectorTurretCommand`로 전송한다.
+1. 관측 자산은 센서 로컬 좌표를 `PROJECT_FRAME` 월드좌표로 변환한다.
+2. 관측 자산은 변환한 표적을 `TargetCoordinate`로 송신한다.
+3. 통제소는 관측 자산 `AssetPose`를 표적 좌표에 다시 적용하지 않는다.
+4. 통제소는 할당된 타격 자산의 `AssetPose`로 상대좌표와 Pan/Tilt를 계산한다.
+5. 통제소는 결과를 해당 자산·세션의 `EffectorTurretCommand`로 송신한다.
 
-버전 관리되는 메시지 계약은 `protocol/mfs.proto`, 결정 근거는
-`docs/decisions/`에서 관리한다.
+`OBSERVATION_FRAME`은 센서나 관측 터렛에 고정된 로컬 좌표계다. 센서 원시값을
+해석하고 보정하는 자산 내부 경계에서만 사용한다. C2 인터페이스의
+`TargetCoordinate`와 모든 `AssetPose`는 `PROJECT_FRAME`이어야 하며, 다른 프레임은
+검증 단계에서 거부한다.
+
+## 다중 자산 모델
+
+- 자산은 `asset_id`로 식별하고 프로세스가 시작될 때마다 새 `session_id`를 만든다.
+- 자산은 공용 UDP 포트 5000으로 `AssetRegistration`을 전송하고 실제 송신 IP와
+  광고한 command port를 조합해 명령 Endpoint를 만든다.
+- 등록 갱신, lease, Heartbeat, 상태 최신성을 각각 검사한다. 같은 자산의 새 세션이
+  등록되면 이전 세션의 pending 명령과 할당을 종료하고 늦게 도착한 패킷을 거부한다.
+- 서로 다른 관측 자산의 같은 detection ID는 서로 다른 64비트 전역 track ID가 된다.
+- 자동 할당은 연결, lease, Pose, 최신 `EffectorStatus`, fault/attack 상태, capability,
+  Pan/Tilt 도달 가능성, 독점 작업 여부를 먼저 검사한 뒤 거리·회전량·부하 점수로
+  결정한다. 동점이면 작은 asset ID를 선택한다.
+- 공격 시작 전 자산이 사라지면 재할당할 수 있다. 공격 시작 후에는 자동 재할당하지
+  않고 `operator_action_required` 상태로 남긴다.
+
+현재 공용 수신 포트와 동적 등록이 기준 경로다. 기존 역할별 포트와 단일 자산 명령
+문법은 마이그레이션 시험을 위한 호환 경계로만 유지한다.
 
 ## 빌드 및 시험
-
-Visual Studio Developer PowerShell에서 다음을 실행한다.
 
 ```powershell
 msbuild c2.slnx /t:Rebuild /p:Configuration=Release /p:Platform=x64 /m
 .\x64\Release\C2.Tests.exe
+.\scripts\run_udp_smoke.ps1 -BinDir .\x64\Release
 ```
-
-CMake를 사용할 수도 있다.
 
 ```powershell
 cmake -S . -B build -A x64
@@ -31,99 +49,100 @@ cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-GitHub Actions는 모든 push와 PR에서 Windows Release 빌드 및 전체 테스트를 수행한다.
+GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스트와 다중
+프로세스 UDP 스모크를 수행한다.
 
-## 서버 실행
+## 서버 실행과 네트워크
 
 ```powershell
-.\x64\Release\C2.Server.exe `
-  --bind 0.0.0.0 `
-  --observation-ip 127.0.0.1 `
-  --effector-ip 127.0.0.1
+.\x64\Release\C2.Server.exe --bind 0.0.0.0 --asset-port 5000
 ```
 
-기본 UDP 포트는 ICD 초안과 같다.
-
-| 방향 | 포트 | 용도 |
+| 방향 | 기본 포트 | 기준 용도 |
 |---|---:|---|
-| 관측 → 통제소 | 5001 | AssetPose, ObservationStatus, Heartbeat |
-| 관측 → 통제소 | 5002 | TargetCoordinate |
-| 통제소 → 관측 | 5101 | ObservationTurretCommand, Heartbeat |
-| 통제소 → 타격 | 6001 | EffectorTurretCommand, AttackCommand, Heartbeat |
-| 타격 → 통제소 | 6002 | AssetPose, EffectorStatus, CommandAck, Heartbeat |
+| 모든 자산 → C2 | 5000 | 등록·해제, Heartbeat, Pose, 상태, 표적, ACK, 오류 |
+| C2 → 각 자산 | 등록값 | 등록 시 광고한 자산별 command port |
 
-모든 주소와 포트는 `--bind`, `--observation-ip`, `--effector-ip`,
-`--observation-status-port`, `--target-port`, `--observation-command-port`,
-`--effector-command-port`, `--effector-status-port` 옵션으로 변경할 수 있다.
-
-시연 운용값도 재컴파일 없이 변경할 수 있다.
+호환 모드에서는 관측 상태 5001, 표적 5002, 관측 명령 5101, 타격 명령 6001,
+타격 상태 6002도 사용한다. 이 포트는 새 자산 배치의 기준이 아니다.
 
 | 옵션 | 기본값 | 의미 |
 |---|---:|---|
-| `--target-validity-ms` | 2000 | 표적 좌표 유효시간 |
-| `--max-targets` | 256 | 동시에 보관할 표적 수 |
-| `--heartbeat-interval-ms` | 1000 | C2 Heartbeat 송신주기 |
+| `--asset-port` | 5000 | 동적 자산 공용 수신 포트 |
+| `--target-validity-ms` | 2000 | 표적/전역 트랙 유효시간 |
+| `--max-targets` | 256 | 전체 표적/트랙 상한 |
+| `--max-tracks-per-observer` | 64 | 관측 자산 하나의 트랙 상한 |
+| `--max-assets` | 256 | 등록 자산 상한 |
+| `--heartbeat-interval-ms` | 1000 | C2 Heartbeat 송신 주기 |
 | `--heartbeat-timeout-ms` | 3000 | 자산 통신 단절 판단시간 |
-| `--command-validity-ms` | 500 | 생성 명령의 유효시간 |
-| `--ack-timeout-ms` | 200 | 명령 재전송 전 ACK 대기시간 |
-| `--command-attempts` | 3 | 최초 전송을 포함한 최대 명령 시도 횟수 |
+| `--retired-retention-ms` | 60000 | 해제·만료 자산 안전명령 Endpoint 보존시간 |
+| `--status-timeout-ms` | 1000 | 타격 상태 최신성 제한 |
+| `--command-validity-ms` | 500 | 생성 명령 유효시간 |
+| `--ack-timeout-ms` | 200 | delivery ACK 전 재전송 대기시간 |
+| `--completion-timeout-ms` | 2000 | 진행 ACK 후 완료 대기시간 |
+| `--command-attempts` | 3 | 최초 송신을 포함한 최대 시도 횟수 |
+| `--max-pending-commands` | 1024 | 전체 pending 명령 상한 |
+| `--max-pending-per-asset` | 64 | 자산별 pending 명령 상한 |
+| `--max-command-outcomes` | 1024 | 명령 종결 이력 상한 |
+| `--max-assignments` | 256 | 할당 이력 상한 |
 | `--emergency-stop-repetitions` | 3 | 비상정지 즉시 반복 횟수 |
+
+전체 한도보다 큰 자산별 한도, 0, 범위를 벗어난 포트와 시간 변환 오버플로는
+서버 시작 전에 거부한다.
 
 ## 콘솔 명령
 
 | 명령 | 의미 |
 |---|---|
-| `scan PAN TILT` | 지정 방향을 중심으로 관측 탐색 시작 |
-| `observe PAN TILT` | 관측 자산을 절대 Pan/Tilt로 지향하되 탐색은 시작하지 않음 |
-| `obs-stop` | 관측 터렛 구동과 탐색 중지 |
-| `obs-home` | 관측 탐색을 중지하고 원점 복귀 |
-| `targets` | 유효한 표적 ID, PROJECT_FRAME 좌표와 신뢰도 표시 |
-| `status` | 두 자산 연결 및 관측·타격 상태 표시 |
-| `errors` | 수신한 오류 이력 표시 |
-| `point TARGET_ID` | 최신 표적 좌표로 타격 자산 지향 |
-| `arm TARGET_ID` | 안전조건 확인 후 공격 준비 |
-| `start TARGET_ID DURATION_MS` | 무장·정렬·표적 일치 확인 후 공격 시작 |
-| `stop` | 공격 중지 |
-| `estop` | 연결 상태와 무관하게 비상정지 전송 |
+| `assets` | 자산·세션·Endpoint·연결·Pose·capability·상태·할당 조회 |
+| `targets` | 전역 track ID, 원 관측 자산/detection ID와 좌표 조회 |
+| `scan OBS_ID PAN TILT` | 지정 관측 자산이 해당 방향에서 탐색 시작 |
+| `observe OBS_ID PAN TILT` | 지정 관측 자산을 절대 Pan/Tilt로 지향 |
+| `obs-stop OBS_ID` / `obs-home OBS_ID` | 관측 탐색 정지 / 원점 복귀 |
+| `assign TRACK_ID [EFFECTOR_ID]` | 자동 또는 수동 타격 자산 할당 |
+| `unassign TRACK_ID` | 공격 전 할당 해제 |
+| `point TRACK_ID` | 필요하면 자동 할당 후 해당 타격 자산 지향 |
+| `arm TRACK_ID` | 현재 할당·상태·지향 일치 검증 후 공격 준비 |
+| `start TRACK_ID DURATION_MS` | 무장·정렬·표적 일치 검증 후 공격 시작 |
+| `stop EFFECTOR_ID` | 보존 Endpoint를 포함해 특정 타격 자산 정지 |
+| `estop EFFECTOR_ID` / `estop-all` | 특정/전체 알려진 타격 자산 비상정지 |
+| `status` | 자산·트랙·할당·pending 명령 요약 |
+| `errors` | 자산이 송신한 오류 이력 조회 |
+| `outcomes` | 완료·거부·실패·만료·재시도 소진·세션 종료 결과 조회 |
 | `quit` | 서버 정상 종료 |
 
-일반 명령은 해당 자산의 Heartbeat 연결과 재연결 이후 `AssetPose` 재동기화가
-완료되어야 전송된다. `STOP`과 `EMERGENCY_STOP`은 안전 우선 명령이므로 이 조건을
-우회한다. 기본 설정에서는 일반 명령이 200ms 안에 ACK가 없으면 재전송되며 최초
-전송을 포함해 최대 3회 시도한다. `EMERGENCY_STOP`은 ACK 대기 없이 동일 명령을
-기본 3회 전송한다. 주소, 포트, timeout, 표적 보관 한도와 재시도 값은 실행 옵션으로
-변경할 수 있다. 실제 장비의 구동 한계와 승인 운용값은 장비 시험 후 확정해야 한다.
+일반 명령은 등록 lease, Heartbeat 연결, 새 세션의 `AssetPose` 재동기화와 상태
+최신성을 요구한다. STOP과 ESTOP은 안전 우선 명령이므로 연결이 끊긴 보존 자산에도
+전송한다. ESTOP 반복 패킷은 동일 command ID를 사용한다.
 
-## 더미 자산 통합 시연
+## 다중 더미 자산 시연
 
-빌드 후 PowerShell 창 세 개에서 다음 프로그램을 각각 실행한다.
+동적 모드는 `--asset-id`를 지정한다. `--listen-port 0`이면 OS가 자산별 command
+port를 배정하고 등록 메시지로 광고한다.
 
 ```powershell
-.\x64\Release\Dummy.Observation.exe
-.\x64\Release\Dummy.Effector.exe
-.\x64\Release\C2.Server.exe
+.\x64\Release\C2.Server.exe --asset-port 5000
+.\x64\Release\Dummy.Observation.exe --asset-id 101 --listen-port 0 --c2-port 5000 --x 0 --y 0
+.\x64\Release\Dummy.Observation.exe --asset-id 102 --listen-port 0 --c2-port 5000 --x 100 --y 0
+.\x64\Release\Dummy.Effector.exe --asset-id 201 --listen-port 0 --c2-port 5000 --x 10 --y 0
+.\x64\Release\Dummy.Effector.exe --asset-id 202 --listen-port 0 --c2-port 5000 --x 50 --y 0
 ```
 
-분리 장비에서 실행할 때 더미 자산은 `--bind`, `--listen-port`, `--c2-ip`,
-`--status-port`, `--status-interval-ms`, `--heartbeat-interval-ms`,
-`--watchdog-timeout-ms`를 지원한다. 관측 더미는 추가로 `--target-port`와
-`--target-interval-ms`를 지원한다.
+더미는 capability, 등록 주기/lease, 위치, 설치 방위각, Pan/Tilt 한계, 상태·Heartbeat
+주기와 watchdog을 옵션으로 받는다. 관측 더미는 표적 송신 주기도 설정할 수 있다.
+`--asset-id`를 생략한 실행은 기존 고정 포트 호환 모드다.
 
-```powershell
-.\x64\Release\Dummy.Observation.exe --c2-ip 192.168.10.20 --listen-port 5101
-.\x64\Release\Dummy.Effector.exe --c2-ip 192.168.10.20 --listen-port 6001
-```
+자동 시험은 관측 2대와 타격 3대를 실행해 동일 detection ID의 전역 트랙 분리,
+자동 할당, POINT/ARM/START, 전체 ESTOP, 동일 asset ID 재시작에 따른 session 교체를
+검증한다.
 
-서버에서 `scan 10 5`, `point 1`, `arm 1`, `start 1 100`을 차례대로 입력하면
-탐색부터 타격 동작 종료까지 로컬 UDP 전체 흐름을 확인할 수 있다. 더미 관측 자산은
-1번 표적의 PROJECT_FRAME 좌표를 생성하며, 두 더미 자산은 `quit`으로 종료한다.
-동일한 실제 프로세스 시험은 다음 명령으로 자동 실행할 수 있으며 CI에서도 수행한다.
+## 안전·보안 경계와 남은 실제 장비 작업
 
-```powershell
-.\scripts\run_udp_smoke.ps1 -BinDir .\x64\Release
-```
+현재 Endpoint 신뢰는 등록 패킷의 실제 source IP와 이후 패킷의 IP/asset/session
+일치 검사에 기반한다. 암호학적 자산 인증, DTLS/IPsec, 키 배포, anti-spoofing,
+권한별 공격 승인과 감사 로그는 실제 배치 전 별도 보안 설계가 필요하다.
 
-시연 기본값과 문서의 TBD를 구현하면서 내린 결정은
-`docs/decisions/ADR-002-runtime-defaults-and-command-identity.md`에 정리되어 있다.
-요구사항별 구현·시험 근거와 실제 장비에 남은 항목은
-`docs/traceability/ICD-RTM.md`에서 확인할 수 있다.
+더미 자산은 ICD와 C2 안전 상태전이를 검증하는 시험 대역이다. 실제 LiDAR SDK,
+calibration/탐지 알고리즘, 모터·encoder·limit·레이저 출력, GUI, 실제 IP와 시간 동기화,
+지향 오차와 End-to-End 성능 승인 기준은 완료 근거에 포함하지 않는다. GUI는 C2 코어와
+별도 프로세스로 구성할 수 있지만, 그 프로세스 간 API/IPC 계약은 아직 확정하지 않았다.
