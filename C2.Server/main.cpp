@@ -116,6 +116,30 @@ std::string_view connection_name(const c2::ConnectionState state) {
     }
     return "UNKNOWN";
 }
+
+std::string_view asset_connection_name(const c2::AssetConnectionState state) {
+    switch (state) {
+        case c2::AssetConnectionState::awaiting_heartbeat: return "AWAITING_HEARTBEAT";
+        case c2::AssetConnectionState::connected: return "CONNECTED";
+        case c2::AssetConnectionState::disconnected: return "DISCONNECTED";
+        case c2::AssetConnectionState::lease_expired: return "LEASE_EXPIRED";
+        case c2::AssetConnectionState::unregistered: return "UNREGISTERED";
+    }
+    return "UNKNOWN";
+}
+
+std::string_view outcome_name(const c2::CommandTerminalState state) {
+    switch (state) {
+        case c2::CommandTerminalState::completed: return "COMPLETED";
+        case c2::CommandTerminalState::rejected: return "REJECTED";
+        case c2::CommandTerminalState::failed: return "FAILED";
+        case c2::CommandTerminalState::expired: return "EXPIRED";
+        case c2::CommandTerminalState::delivery_exhausted: return "DELIVERY_EXHAUSTED";
+        case c2::CommandTerminalState::completion_timeout: return "COMPLETION_TIMEOUT";
+        case c2::CommandTerminalState::session_ended: return "SESSION_ENDED";
+    }
+    return "UNKNOWN";
+}
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -178,7 +202,8 @@ int main(int argc, char* argv[]) {
                      "scan OBS_ID P T, observe OBS_ID P T, obs-stop OBS_ID, "
                      "obs-home OBS_ID, assign TRACK_ID [EFFECTOR_ID], unassign TRACK_ID, "
                      "point TRACK_ID, arm TRACK_ID, start TRACK_ID MS, "
-                     "stop EFFECTOR_ID, estop EFFECTOR_ID, estop-all, status, errors, quit\n";
+                     "stop EFFECTOR_ID, estop EFFECTOR_ID, estop-all, status, "
+                     "errors, outcomes, quit\n";
         std::string line;
         while (std::cout << "> " && std::getline(std::cin, line)) {
             const auto parsed = c2::parse_console_command(line);
@@ -194,18 +219,36 @@ int main(int argc, char* argv[]) {
                     goto shutdown;
                 case c2::ConsoleCommandKind::assets: {
                     const auto assets = runtime.assets(now);
+                    const auto assignments = runtime.assignments();
                     if (assets.empty()) std::cout << "no registered assets\n";
-                    for (const auto& asset : assets)
+                    for (const auto& asset : assets) {
                         std::cout << "asset=" << asset.asset_id
                                   << " role=" << static_cast<std::uint32_t>(asset.role)
                                   << " session=" << asset.session_id
                                   << " endpoint=" << asset.command_endpoint.address << ':'
                                   << asset.command_endpoint.port
-                                  << " connection=" << static_cast<std::uint32_t>(
+                                  << " connection=" << asset_connection_name(
                                          asset.connection_state)
                                   << " lease_us=" << asset.lease_expires_at_us
                                   << " pose=" << (asset.pose_synchronized ? "yes" : "no")
-                                  << " capabilities=" << asset.capabilities << '\n';
+                                  << " capabilities=" << asset.capabilities;
+                        bool first_assignment = true;
+                        for (const auto& assignment : assignments) {
+                            if (assignment.effector_asset_id != asset.asset_id)
+                                continue;
+                            std::cout << (first_assignment ? " tracks=" : ",")
+                                      << assignment.track_id;
+                            first_assignment = false;
+                        }
+                        if (first_assignment) std::cout << " tracks=none";
+                        if (asset.effector_status)
+                            std::cout << " effector_state="
+                                      << static_cast<std::uint32_t>(
+                                             asset.effector_status->state)
+                                      << " status_current="
+                                      << (asset.status_current ? "yes" : "no");
+                        std::cout << '\n';
+                    }
                     break;
                 }
                 case c2::ConsoleCommandKind::targets: {
@@ -312,6 +355,7 @@ int main(int argc, char* argv[]) {
                               << runtime.pending_command_count() << '\n';
                     std::cout << "assets=" << runtime.assets(now).size()
                               << " tracks=" << runtime.tracks(now).size()
+                              << " assignments=" << runtime.assignments().size()
                               << " pending_commands="
                               << runtime.pending_command_count() << '\n';
                     break;
@@ -324,6 +368,17 @@ int main(int argc, char* argv[]) {
                                   << " code=" << error.error_code
                                   << " command=" << error.related_command_id
                                   << " detail=" << error.detail << '\n';
+                    break;
+                }
+                case c2::ConsoleCommandKind::outcomes: {
+                    const auto outcomes = runtime.command_outcomes();
+                    if (outcomes.empty()) std::cout << "no command outcomes\n";
+                    for (const auto& outcome : outcomes)
+                        std::cout << "asset=" << outcome.key.asset_id
+                                  << " session=" << outcome.key.session_id
+                                  << " command=" << outcome.key.command_id
+                                  << " state=" << outcome_name(outcome.state)
+                                  << " ended_us=" << outcome.ended_at_us << '\n';
                     break;
                 }
             }

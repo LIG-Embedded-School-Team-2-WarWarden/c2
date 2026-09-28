@@ -64,7 +64,8 @@ enum class AssignmentResult {
 
 struct AssetAssignmentConfig {
     AssignmentScoreWeights weights;
-    std::uint64_t required_capabilities{capability::effector_point};
+    std::uint64_t required_capabilities{
+        capability::effector_point | capability::effector_attack};
     std::size_t maximum_assignments{256};
 };
 
@@ -94,6 +95,7 @@ public:
         std::optional<std::uint64_t> requested_asset_id = std::nullopt);
     [[nodiscard]] std::optional<AssetAssignment> assignment(
         std::uint64_t track_id) const;
+    [[nodiscard]] std::vector<AssetAssignment> assignments() const;
     [[nodiscard]] bool mark_attack_started(std::uint64_t track_id);
     [[nodiscard]] std::size_t mark_unavailable(
         std::uint64_t asset_id, std::uint64_t session_id,

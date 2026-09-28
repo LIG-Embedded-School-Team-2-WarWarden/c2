@@ -240,6 +240,48 @@ TEST(ServerRuntimeTest, ExposesConnectionsAndCurrentTargetsForOperatorDisplay) {
     EXPECT_EQ(targets.front().detection_id, 7U);
 }
 
+TEST(ServerRuntimeTest, ExposesAssignmentAndCommandOutcomeSnapshots) {
+    auto runtime_config = config();
+    runtime_config.commands = {10, 50, 1, 8, 4, 16};
+    c2::ServerRuntime server(runtime_config, [](auto, auto) {});
+    const c2::Endpoint observer_source{"10.0.0.1", 40'101};
+    const c2::Endpoint effector_source{"10.0.0.2", 40'201};
+    const auto observer = registration(101, 1, c2::AssetRole::observation, 51'101);
+    const auto effector = registration(201, 1, c2::AssetRole::effector, 60'201);
+    ASSERT_EQ(server.ingest(bytes(observer), observer_source, 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(effector), effector_source, 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(observer, 2)), observer_source, 101),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(effector, 2)), effector_source, 101),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(pose(effector, 3, 0)), effector_source, 102),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(effector_status(effector, 4)), effector_source, 103),
+              c2::InboundResult::accepted);
+    c2::TargetCoordinate target{
+        {c2::protocol_version, 3, 104, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 1},
+        7, 104, c2::CoordinateFrame::project_frame, 10, 0, 0, 0.9F};
+    ASSERT_EQ(server.ingest(bytes(target), observer_source, 104),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.assign(1, 105).result, c2::AssignmentResult::assigned);
+    ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(
+        server.point_effector(1, 106)));
+
+    const auto assignments = server.assignments();
+    ASSERT_EQ(assignments.size(), 1U);
+    EXPECT_EQ(assignments.front().track_id, 1U);
+    EXPECT_EQ(assignments.front().effector_asset_id, 201U);
+    EXPECT_EQ(server.retry_unacknowledged(116).exhausted, 1U);
+    const auto outcomes = server.command_outcomes();
+    ASSERT_EQ(outcomes.size(), 1U);
+    EXPECT_EQ(outcomes.front().key.asset_id, 201U);
+    EXPECT_EQ(outcomes.front().state,
+              c2::CommandTerminalState::delivery_exhausted);
+}
+
 TEST(ServerRuntimeTest, RetriesCommandsUntilAcknowledged) {
     auto runtime_config = config();
     runtime_config.command_ack_timeout_us = 10;

@@ -17,6 +17,7 @@ TEST(ServerConsoleTest, ParsesAssetTrackAndStatusQueries) {
     EXPECT_EQ(parsed("targets").kind, c2::ConsoleCommandKind::targets);
     EXPECT_EQ(parsed("status").kind, c2::ConsoleCommandKind::status);
     EXPECT_EQ(parsed("errors").kind, c2::ConsoleCommandKind::errors);
+    EXPECT_EQ(parsed("outcomes").kind, c2::ConsoleCommandKind::outcomes);
     EXPECT_EQ(parsed("quit").kind, c2::ConsoleCommandKind::quit);
 }
 

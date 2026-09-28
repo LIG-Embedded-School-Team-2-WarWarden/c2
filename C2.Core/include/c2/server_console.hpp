@@ -23,6 +23,7 @@ enum class ConsoleCommandKind {
     emergency_stop_all,
     status,
     errors,
+    outcomes,
     quit,
 };
 

@@ -4,6 +4,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <latch>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -140,4 +142,34 @@ TEST(CommandTrackerTest, EnforcesTotalPerAssetAndHistoryCapacity) {
     EXPECT_EQ(outcomes[0].key.asset_id, 1U);
     EXPECT_EQ(outcomes[0].key.command_id, 2U);
     EXPECT_EQ(outcomes[1].key.asset_id, 2U);
+}
+
+TEST(CommandTrackerTest, SerializesTerminalAckAndRetryExhaustionRace) {
+    c2::CommandTracker tracker({10, 50, 1, 8, 4, 16});
+    ASSERT_EQ(tracker.track(command(1, 10, 7)), c2::CommandTrackResult::tracked);
+    std::latch ready(2);
+    std::latch start(1);
+    std::jthread acknowledge([&] {
+        ready.count_down();
+        start.wait();
+        (void)tracker.observe(
+            ack(1, 10, 7, c2::CommandResult::completed, 110), 110);
+    });
+    std::jthread expire([&] {
+        ready.count_down();
+        start.wait();
+        (void)tracker.poll(110);
+    });
+    ready.wait();
+    start.count_down();
+    acknowledge.join();
+    expire.join();
+
+    EXPECT_EQ(tracker.pending_count(), 0U);
+    const auto outcomes = tracker.outcomes();
+    ASSERT_EQ(outcomes.size(), 1U);
+    EXPECT_EQ(outcomes.front().key, (c2::CommandKey{1, 10, 7}));
+    EXPECT_TRUE(outcomes.front().state == c2::CommandTerminalState::completed ||
+                outcomes.front().state ==
+                    c2::CommandTerminalState::delivery_exhausted);
 }
