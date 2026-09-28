@@ -82,6 +82,7 @@ ServerOptions parse_server_options(
         else if (name == "--heartbeat-interval-ms") options.heartbeat_interval_ms = interval_ms(value, "heartbeat interval");
         else if (name == "--heartbeat-timeout-ms") options.heartbeat_timeout_ms = positive_number<std::uint64_t>(value, "heartbeat timeout");
         else if (name == "--retired-retention-ms") options.retired_retention_ms = positive_number<std::uint64_t>(value, "retired retention");
+        else if (name == "--max-registration-lease-ms") options.maximum_registration_lease_ms = positive_number<std::uint64_t>(value, "maximum registration lease");
         else if (name == "--status-timeout-ms") options.status_timeout_ms = positive_number<std::uint64_t>(value, "status timeout");
         else if (name == "--command-validity-ms") options.command_validity_ms = positive_number<std::uint64_t>(value, "command validity");
         else if (name == "--ack-timeout-ms") options.acknowledgement_timeout_ms = positive_number<std::uint64_t>(value, "acknowledgement timeout");
@@ -109,6 +110,7 @@ ServerOptions parse_server_options(
     (void)microseconds(options.target_validity_ms, "target validity");
     (void)microseconds(options.heartbeat_timeout_ms, "heartbeat timeout");
     (void)microseconds(options.retired_retention_ms, "retired retention");
+    (void)microseconds(options.maximum_registration_lease_ms, "maximum registration lease");
     (void)microseconds(options.status_timeout_ms, "status timeout");
     (void)microseconds(options.command_validity_ms, "command validity");
     (void)microseconds(options.acknowledgement_timeout_ms, "acknowledgement timeout");
@@ -143,7 +145,8 @@ ServerRuntimeConfig make_server_runtime_config(const ServerOptions& options) {
     config.registry = {
         options.maximum_assets, heartbeat_timeout,
         microseconds(options.retired_retention_ms, "retired retention"),
-        microseconds(options.status_timeout_ms, "status timeout")};
+        microseconds(options.status_timeout_ms, "status timeout"),
+        options.maximum_registration_lease_ms};
     config.tracks = {target_validity, options.maximum_targets,
                      options.maximum_tracks_per_observer, 1};
     config.commands = {

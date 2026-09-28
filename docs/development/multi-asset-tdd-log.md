@@ -277,3 +277,13 @@
 - Refactor: 외부 output callback을 제거해 PowerShell runspace 종속성을 없애고 공통
   `Wait-OutputPattern`/`Wait-SentCount`로 실패 메시지와 timeout을 일원화했다.
 - 검증: 동일 Release 바이너리로 smoke 3회 연속 통과.
+
+## Cycle 25 — 서버 측 등록 lease 상한
+
+- Red: 자산이 임의로 매우 긴 lease를 광고해도 registry가 수용하는 문제를 최대값
+  초과/경계 등록과 잘못된 0 설정 테스트로 재현했다.
+- Green: `AssetRegistryConfig`에 최대 허용 lease를 추가하고 초과 등록을 `invalid`로
+  거부했다. `--max-registration-lease-ms`로 배포 정책을 외부화했다.
+- Refactor: 시간 변환 overflow 검사를 공통 서버 옵션 검증에 포함하고 등록 mutex를
+  얻기 전에 정책 위반을 거부한다.
+- 검증: Release 전체 빌드, 전체 시험 190/190, 조건 기반 다중 프로세스 smoke 통과.

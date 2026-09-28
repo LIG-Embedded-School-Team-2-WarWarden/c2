@@ -14,6 +14,7 @@ TEST(ServerOptionsTest, ParsesAndPropagatesDynamicRuntimeLimits) {
         "--max-assets", "40",
         "--heartbeat-timeout-ms", "4500",
         "--retired-retention-ms", "70000",
+        "--max-registration-lease-ms", "10000",
         "--status-timeout-ms", "1500",
         "--ack-timeout-ms", "250",
         "--completion-timeout-ms", "5000",
@@ -43,6 +44,7 @@ TEST(ServerOptionsTest, ParsesAndPropagatesDynamicRuntimeLimits) {
     EXPECT_EQ(runtime.connections.heartbeat_timeout_us, 4'500'000U);
     EXPECT_EQ(runtime.registry.heartbeat_timeout_us, 4'500'000U);
     EXPECT_EQ(runtime.registry.retired_retention_us, 70'000'000U);
+    EXPECT_EQ(runtime.registry.maximum_lease_duration_ms, 10'000U);
     EXPECT_EQ(runtime.registry.status_timeout_us, 1'500'000U);
     EXPECT_EQ(runtime.command_ack_timeout_us, 250'000U);
     EXPECT_EQ(runtime.commands.delivery_ack_timeout_us, 250'000U);

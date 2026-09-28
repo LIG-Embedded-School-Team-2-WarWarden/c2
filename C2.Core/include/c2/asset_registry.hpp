@@ -16,6 +16,7 @@ struct AssetRegistryConfig {
     std::uint64_t heartbeat_timeout_us{3'000'000};
     std::uint64_t retired_retention_us{60'000'000};
     std::uint64_t status_timeout_us{1'000'000};
+    std::uint64_t maximum_lease_duration_ms{60'000};
 };
 
 enum class AssetRegistryResult {

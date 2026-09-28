@@ -26,6 +26,7 @@ struct ServerOptions {
     std::uint64_t heartbeat_interval_ms{1'000};
     std::uint64_t heartbeat_timeout_ms{3'000};
     std::uint64_t retired_retention_ms{60'000};
+    std::uint64_t maximum_registration_lease_ms{60'000};
     std::uint64_t status_timeout_ms{1'000};
     std::uint64_t command_validity_ms{500};
     std::uint64_t acknowledgement_timeout_ms{200};
