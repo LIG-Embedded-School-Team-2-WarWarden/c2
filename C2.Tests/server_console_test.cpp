@@ -54,6 +54,18 @@ TEST(ServerConsoleTest, ParsesAssignmentAndEffectorCommands) {
               c2::ConsoleCommandKind::emergency_stop_all);
 }
 
+TEST(ServerConsoleTest, PreservesLegacySingleAssetSyntaxDuringMigration) {
+    const auto scan = parsed("scan 10 5");
+    EXPECT_EQ(scan.kind, c2::ConsoleCommandKind::scan);
+    EXPECT_EQ(scan.asset_id, 0U);
+    EXPECT_FLOAT_EQ(scan.pan_deg, 10.0F);
+    EXPECT_FLOAT_EQ(scan.tilt_deg, 5.0F);
+    EXPECT_EQ(parsed("obs-stop").asset_id, 0U);
+    EXPECT_EQ(parsed("obs-home").asset_id, 0U);
+    EXPECT_EQ(parsed("stop").asset_id, 0U);
+    EXPECT_EQ(parsed("estop").asset_id, 0U);
+}
+
 TEST(ServerConsoleTest, RejectsMissingExtraMalformedAndZeroArguments) {
     for (const auto text : {"", "unknown", "assets extra", "scan 1 2",
                             "scan 0 1 2", "assign 0", "assign 1 0",
