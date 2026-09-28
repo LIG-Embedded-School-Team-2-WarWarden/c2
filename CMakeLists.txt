@@ -18,6 +18,8 @@ set(C2_CORE_SOURCES
     C2.Core/src/protobuf_codec.cpp
     C2.Core/src/protocol_validation.cpp
     C2.Core/src/server_runtime.cpp
+    C2.Core/src/server_console.cpp
+    C2.Core/src/server_udp_ingress.cpp
     C2.Core/src/state_store.cpp
     C2.Core/src/telemetry_store.cpp
     C2.Core/src/track_store.cpp
