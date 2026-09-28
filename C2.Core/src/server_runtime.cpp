@@ -22,7 +22,7 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
       command_tracker_(config_.commands),
       assignments_(config_.assignments),
       state_(config_.state),
-      telemetry_(),
+      telemetry_(config_.maximum_error_history),
       connections_(config_.connections),
       observation_commands_(config_.observation_commands),
       effector_commands_(state_, config_.effector_commands),

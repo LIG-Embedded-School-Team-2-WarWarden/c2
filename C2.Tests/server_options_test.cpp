@@ -21,7 +21,14 @@ TEST(ServerOptionsTest, ParsesAndPropagatesDynamicRuntimeLimits) {
         "--max-pending-commands", "200",
         "--max-pending-per-asset", "20",
         "--max-command-outcomes", "400",
-        "--max-assignments", "100"};
+        "--max-assignments", "100",
+        "--max-error-history", "50",
+        "--distance-weight", "2.5",
+        "--rotation-weight", "3",
+        "--assignment-weight", "125",
+        "--degraded-penalty", "750",
+        "--failure-weight", "40",
+        "--auto-reassign", "false"};
 
     const auto options = c2::parse_server_options(arguments);
     const auto runtime = c2::make_server_runtime_config(options);
@@ -45,6 +52,13 @@ TEST(ServerOptionsTest, ParsesAndPropagatesDynamicRuntimeLimits) {
     EXPECT_EQ(runtime.commands.maximum_pending_per_asset, 20U);
     EXPECT_EQ(runtime.commands.maximum_outcomes, 400U);
     EXPECT_EQ(runtime.assignments.maximum_assignments, 100U);
+    EXPECT_EQ(runtime.maximum_error_history, 50U);
+    EXPECT_DOUBLE_EQ(runtime.assignments.weights.distance_weight, 2.5);
+    EXPECT_DOUBLE_EQ(runtime.assignments.weights.rotation_weight, 3.0);
+    EXPECT_DOUBLE_EQ(runtime.assignments.weights.assignment_weight, 125.0);
+    EXPECT_DOUBLE_EQ(runtime.assignments.weights.degraded_penalty, 750.0);
+    EXPECT_DOUBLE_EQ(runtime.assignments.weights.failure_weight, 40.0);
+    EXPECT_FALSE(runtime.assignments.auto_reassignment_enabled);
 }
 
 TEST(ServerOptionsTest, KeepsDocumentedDefaultsConsistentAcrossLegacyAndDynamicPaths) {
@@ -66,6 +80,9 @@ TEST(ServerOptionsTest, RejectsUnknownMissingZeroOverflowAndContradictoryValues)
              {"--asset-port"},
              {"--asset-port", "0"},
              {"--target-validity-ms", "18446744073709552"},
+             {"--distance-weight", "-1"},
+             {"--rotation-weight", "nan"},
+             {"--auto-reassign", "sometimes"},
              {"--max-targets", "10", "--max-tracks-per-observer", "11"},
              {"--max-pending-commands", "10", "--max-pending-per-asset", "11"}}) {
         EXPECT_THROW((void)c2::parse_server_options(arguments),

@@ -126,6 +126,9 @@ AssignmentDecision AssetAssignmentService::assign(
             return {AssignmentResult::assigned, existing->second};
         if (existing->second.state == AssignmentResult::operator_action_required)
             return {AssignmentResult::operator_action_required, existing->second};
+        if (existing->second.state == AssignmentResult::assignment_lost &&
+            !config_.auto_reassignment_enabled && !requested_asset_id)
+            return {AssignmentResult::assignment_lost, existing->second};
         if (existing->second.state == AssignmentResult::completed ||
             existing->second.state == AssignmentResult::failed)
             return {existing->second.state, existing->second};

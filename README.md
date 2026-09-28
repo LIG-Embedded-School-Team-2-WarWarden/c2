@@ -85,6 +85,13 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 | `--max-pending-per-asset` | 64 | 자산별 pending 명령 상한 |
 | `--max-command-outcomes` | 1024 | 명령 종결 이력 상한 |
 | `--max-assignments` | 256 | 할당 이력 상한 |
+| `--max-error-history` | 128 | 자산 ErrorReport 이력 상한 |
+| `--distance-weight` | 1 | 할당 거리 점수 가중치 |
+| `--rotation-weight` | 1 | 할당 회전량 점수 가중치 |
+| `--assignment-weight` | 100 | 기존 작업 수 penalty 가중치 |
+| `--degraded-penalty` | 500 | degraded 상태 penalty |
+| `--failure-weight` | 25 | 최근 명령 실패 penalty 가중치 |
+| `--auto-reassign` | true | 공격 시작 전 할당 상실 시 자동 재할당 |
 | `--emergency-stop-repetitions` | 3 | 비상정지 즉시 반복 횟수 |
 
 전체 한도보다 큰 자산별 한도, 0, 범위를 벗어난 포트와 시간 변환 오버플로는

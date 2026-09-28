@@ -67,6 +67,7 @@ struct AssetAssignmentConfig {
     std::uint64_t required_capabilities{
         capability::effector_point | capability::effector_attack};
     std::size_t maximum_assignments{256};
+    bool auto_reassignment_enabled{true};
 };
 
 struct AssetAssignment {

@@ -135,6 +135,28 @@ TEST(AssetAssignmentServiceTest, ReassignsPreAttackLossButNotActiveAttackLoss) {
     EXPECT_EQ(service.assignment(1)->effector_asset_id, 20U);
 }
 
+TEST(AssetAssignmentServiceTest, KeepsLostAssignmentWhenAutomaticReassignmentDisabled) {
+    auto config = assignment_config();
+    config.auto_reassignment_enabled = false;
+    c2::AssetAssignmentService service(config);
+    ASSERT_EQ(service.assign(
+                  assignment_track(1), {assignment_candidate(10)}).result,
+              c2::AssignmentResult::assigned);
+    ASSERT_EQ(service.mark_unavailable(10, 110, 120), 1U);
+
+    const auto decision = service.assign(
+        assignment_track(1), {assignment_candidate(20)});
+    ASSERT_EQ(decision.result, c2::AssignmentResult::assignment_lost);
+    ASSERT_TRUE(decision.assignment.has_value());
+    EXPECT_EQ(decision.assignment->effector_asset_id, 10U);
+
+    const auto manual = service.assign(
+        assignment_track(1), {assignment_candidate(20)}, 20);
+    ASSERT_EQ(manual.result, c2::AssignmentResult::assigned);
+    ASSERT_TRUE(manual.assignment.has_value());
+    EXPECT_EQ(manual.assignment->effector_asset_id, 20U);
+}
+
 TEST(AssetAssignmentServiceTest, RejectsUnassignDuringAttackAndRecordsCompletion) {
     c2::AssetAssignmentService service(assignment_config());
     ASSERT_EQ(service.assign(
