@@ -616,8 +616,24 @@ TEST(ServerRuntimeAssignmentTest, EnforcesAssignedAttackSafetyAndStopsDisconnect
     EXPECT_EQ(sent.back().endpoint.port, 60'201);
     EXPECT_EQ(std::get<c2::AttackCommand>(stop).action, c2::AttackAction::stop);
 
+    const auto before_targeted_estop = sent.size();
+    const auto targeted_estop = server.emergency_stop_effector(201, 113);
+    ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(targeted_estop));
+    ASSERT_EQ(sent.size(), before_targeted_estop +
+                               runtime_config.emergency_stop_repetitions);
+    std::uint32_t targeted_command_id{};
+    for (std::size_t index = before_targeted_estop; index < sent.size(); ++index) {
+        const auto decoded = c2::protobuf::decode(sent[index].data);
+        ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+        const auto& command = std::get<c2::AttackCommand>(
+            std::get<c2::Envelope>(decoded).payload);
+        EXPECT_EQ(command.action, c2::AttackAction::emergency_stop);
+        if (targeted_command_id == 0) targeted_command_id = command.command_id;
+        EXPECT_EQ(command.command_id, targeted_command_id);
+    }
+
     const auto before_estop = sent.size();
-    const auto estop = server.emergency_stop_all(113);
+    const auto estop = server.emergency_stop_all(114);
     EXPECT_EQ(estop.assets, 1U);
     EXPECT_EQ(estop.datagrams, runtime_config.emergency_stop_repetitions);
     ASSERT_EQ(sent.size(), before_estop + runtime_config.emergency_stop_repetitions);
