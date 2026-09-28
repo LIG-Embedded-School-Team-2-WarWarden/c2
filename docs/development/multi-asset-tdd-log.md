@@ -287,3 +287,15 @@
 - Refactor: 시간 변환 overflow 검사를 공통 서버 옵션 검증에 포함하고 등록 mutex를
   얻기 전에 정책 위반을 거부한다.
 - 검증: Release 전체 빌드, 전체 시험 190/190, 조건 기반 다중 프로세스 smoke 통과.
+
+## Cycle 26 — 자산 수명주기 동시성
+
+- Red: latch로 status 갱신/목록 조회와 unregister/명령 전송을 동시에 실행했다.
+  후자에서 unregister가 snapshot 조회와 pending 등록 사이에 끼어 종료 세션의 pending
+  명령이 남는 실패를 반복 재현했다.
+- Green: 등록·해제와 동적 자산 명령 라우팅을 공통 자산 수명주기 mutex로 직렬화해
+  명령이 먼저면 unregister가 pending을 종료하고, 해제가 먼저면 명령을 거부하게 했다.
+- Refactor: registry 자체 mutex와 별도로 runtime 조합 연산에만 수명주기 경계를 두어
+  일반 상태/Heartbeat 수신과 snapshot 조회의 병렬성은 유지했다.
+- 검증: 두 동시성 테스트 20회 반복 통과 후 Release 전체 시험 192/192 및 조건 기반
+  다중 프로세스 smoke 통과.

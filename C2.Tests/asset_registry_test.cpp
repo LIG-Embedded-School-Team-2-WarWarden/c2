@@ -281,6 +281,47 @@ TEST(AssetRegistryTest, StoresEffectorStatusIndependentlyAndTracksFreshness) {
     EXPECT_TRUE(registry.asset(20, 202)->status_current);
 }
 
+TEST(AssetRegistryTest, AllowsConcurrentStatusUpdatesAndSnapshotReads) {
+    c2::AssetRegistry registry({4, 10'000, 10'000, 10'000});
+    const auto asset = registration(
+        10, 1, c2::AssetRole::effector, 60'010, 5'000);
+    const c2::Endpoint source{"10.0.0.1", 40'010};
+    ASSERT_EQ(registry.register_asset(asset, source, 100),
+              c2::AssetRegistryResult::registered);
+    std::latch ready(2);
+    std::latch start(1);
+    std::atomic_bool update_failed{};
+    std::atomic_bool snapshot_failed{};
+    std::jthread updater([&] {
+        ready.count_down();
+        start.wait();
+        for (std::uint32_t sequence = 2; sequence <= 101; ++sequence) {
+            if (registry.update_effector_status(
+                    effector_status(asset, sequence, 100 + sequence),
+                    source, 100 + sequence) != c2::AssetRegistryResult::stored)
+                update_failed = true;
+        }
+    });
+    std::jthread reader([&] {
+        ready.count_down();
+        start.wait();
+        for (std::uint32_t index = 0; index < 100; ++index) {
+            const auto snapshots = registry.assets(c2::AssetRole::effector, 150);
+            if (snapshots.size() != 1 || snapshots.front().asset_id != 10)
+                snapshot_failed = true;
+        }
+    });
+    ready.wait();
+    start.count_down();
+    updater.join();
+    reader.join();
+
+    EXPECT_FALSE(update_failed.load());
+    EXPECT_FALSE(snapshot_failed.load());
+    ASSERT_TRUE(registry.asset(10, 201)->effector_status.has_value());
+    EXPECT_EQ(registry.asset(10, 201)->effector_status->header.sequence, 101U);
+}
+
 TEST(AssetRegistryTest, SessionReplacementClearsEffectorStatus) {
     c2::AssetRegistry registry({2, 1'000, 10'000, 100});
     const auto old_session = registration(10, 1, c2::AssetRole::effector, 60'010, 5'000);
