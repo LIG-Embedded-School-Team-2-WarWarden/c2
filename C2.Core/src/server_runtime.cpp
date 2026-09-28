@@ -237,6 +237,47 @@ ObservationDispatchResult ServerRuntime::command_observation(
 
 EffectorDispatchResult ServerRuntime::point_effector(
     const std::uint64_t target_id, const std::uint64_t now_us) {
+    if (const auto assignment = assignments_.assignment(target_id);
+        assignment && assignment->state == AssignmentResult::assigned) {
+        const auto track = tracks_.track(target_id, now_us);
+        const auto asset = registry_.asset(assignment->effector_asset_id, now_us);
+        if (!track || !asset || asset->session_id != assignment->effector_session_id ||
+            asset->connection_state != AssetConnectionState::connected)
+            return DispatchError::connection_unavailable;
+        if (!asset->pose_synchronized || !asset->pose)
+            return DispatchError::pose_resynchronization_required;
+        const auto solution = calculate_effector_pointing(
+            track->measurement, *asset->pose,
+            {asset->turret_limits.minimum_pan_deg,
+             asset->turret_limits.maximum_pan_deg,
+             asset->turret_limits.minimum_tilt_deg,
+             asset->turret_limits.maximum_tilt_deg});
+        if (!std::holds_alternative<PointingSolution>(solution) || now_us == 0 ||
+            now_us > std::numeric_limits<std::uint64_t>::max() -
+                         config_.effector_commands.command_validity_us)
+            return DispatchError::command_rejected;
+        const auto& pointing = std::get<PointingSolution>(solution);
+        EffectorTurretCommand command{
+            {protocol_version, 1, now_us, ComponentId::command_and_control,
+             ComponentId::effector_asset, asset->asset_id, asset->session_id},
+            1, target_id, pointing.pan_deg, pointing.tilt_deg,
+            now_us + config_.effector_commands.command_validity_us};
+        assign_effector_identity(command);
+        const auto encoded = protobuf::encode(Envelope{command});
+        if (command_tracker_.track({asset->asset_id, asset->session_id,
+                                    command.command_id, encoded,
+                                    asset->command_endpoint, now_us,
+                                    command.valid_until_us}) !=
+            CommandTrackResult::tracked)
+            return DispatchError::command_rejected;
+        {
+            std::lock_guard lock(routed_point_mutex_);
+            routed_points_.insert_or_assign(
+                target_id, RoutedPoint{asset->asset_id, asset->session_id, command});
+        }
+        sender_(encoded, asset->command_endpoint);
+        return command;
+    }
     if (const auto error = connection_error(ComponentId::effector_asset, now_us))
         return *error;
     const auto result = effector_commands_.create_for_target(target_id, now_us);
@@ -254,6 +295,60 @@ EffectorDispatchResult ServerRuntime::point_effector(
 AttackDispatchResult ServerRuntime::attack(
     const AttackAction action, const std::uint64_t target_id,
     const std::uint32_t duration_ms, const std::uint64_t now_us) {
+    if ((action == AttackAction::arm || action == AttackAction::start) &&
+        assignments_.assignment(target_id)) {
+        const auto assignment = assignments_.assignment(target_id);
+        const auto track = tracks_.track(target_id, now_us);
+        const auto asset = assignment
+            ? registry_.asset(assignment->effector_asset_id, now_us)
+            : std::nullopt;
+        if (!assignment || assignment->state != AssignmentResult::assigned ||
+            !track || !asset ||
+            asset->session_id != assignment->effector_session_id ||
+            asset->connection_state != AssetConnectionState::connected)
+            return DispatchError::connection_unavailable;
+        if (!asset->pose_synchronized || !asset->pose)
+            return DispatchError::pose_resynchronization_required;
+        if (!asset->effector_status || !asset->status_current ||
+            asset->effector_status->state != EffectorState::ready ||
+            !asset->effector_status->aligned ||
+            asset->effector_status->error_code != 0 ||
+            (action == AttackAction::start &&
+             (!asset->effector_status->attack_armed || duration_ms == 0)))
+            return DispatchError::command_rejected;
+        {
+            std::lock_guard lock(routed_point_mutex_);
+            const auto point = routed_points_.find(target_id);
+            if (point == routed_points_.end() ||
+                point->second.asset_id != asset->asset_id ||
+                point->second.session_id != asset->session_id ||
+                point->second.command.target_id != target_id ||
+                point->second.command.valid_until_us <= now_us)
+                return DispatchError::command_rejected;
+        }
+        if (now_us == 0 ||
+            now_us > std::numeric_limits<std::uint64_t>::max() -
+                         config_.attack_commands.command_validity_us)
+            return DispatchError::command_rejected;
+        AttackCommand command{
+            {protocol_version, 1, now_us, ComponentId::command_and_control,
+             ComponentId::effector_asset, asset->asset_id, asset->session_id},
+            1, target_id, action, duration_ms,
+            now_us + config_.attack_commands.command_validity_us};
+        assign_effector_identity(command);
+        const auto encoded = protobuf::encode(Envelope{command});
+        if (command_tracker_.track({asset->asset_id, asset->session_id,
+                                    command.command_id, encoded,
+                                    asset->command_endpoint, now_us,
+                                    command.valid_until_us}) !=
+            CommandTrackResult::tracked)
+            return DispatchError::command_rejected;
+        if (action == AttackAction::start &&
+            !assignments_.mark_attack_started(target_id))
+            return DispatchError::command_rejected;
+        sender_(encoded, asset->command_endpoint);
+        return command;
+    }
     if (action != AttackAction::stop && action != AttackAction::emergency_stop) {
         if (const auto error = connection_error(ComponentId::effector_asset, now_us))
             return *error;
@@ -274,6 +369,82 @@ AttackDispatchResult ServerRuntime::attack(
                          ComponentId::effector_asset, now_us);
     }
     return command;
+}
+
+AttackDispatchResult ServerRuntime::stop_effector(
+    const std::uint64_t effector_asset_id, const std::uint64_t now_us) {
+    const auto asset = registry_.asset(effector_asset_id, now_us);
+    if (!asset || asset->role != AssetRole::effector)
+        return DispatchError::command_rejected;
+    return dispatch_safety_command(*asset, AttackAction::stop, 1, now_us);
+}
+
+AttackDispatchResult ServerRuntime::emergency_stop_effector(
+    const std::uint64_t effector_asset_id, const std::uint64_t now_us) {
+    const auto asset = registry_.asset(effector_asset_id, now_us);
+    if (!asset || asset->role != AssetRole::effector)
+        return DispatchError::command_rejected;
+    return dispatch_safety_command(
+        *asset, AttackAction::emergency_stop,
+        config_.emergency_stop_repetitions, now_us);
+}
+
+AttackDispatchResult ServerRuntime::dispatch_safety_command(
+    const AssetSnapshot& asset, const AttackAction action,
+    const std::uint32_t repetitions, const std::uint64_t now_us) {
+    if ((action != AttackAction::stop &&
+         action != AttackAction::emergency_stop) ||
+        repetitions == 0 || now_us == 0 ||
+        now_us > std::numeric_limits<std::uint64_t>::max() -
+                     config_.attack_commands.command_validity_us)
+        return DispatchError::command_rejected;
+    AttackCommand command{
+        {protocol_version, 1, now_us, ComponentId::command_and_control,
+         ComponentId::effector_asset, asset.asset_id, asset.session_id},
+        1, 0, action, 0,
+        now_us + config_.attack_commands.command_validity_us};
+    assign_effector_identity(command);
+    const auto encoded = protobuf::encode(Envelope{command});
+    if (action == AttackAction::stop) {
+        if (command_tracker_.track({asset.asset_id, asset.session_id,
+                                    command.command_id, encoded,
+                                    asset.command_endpoint, now_us,
+                                    command.valid_until_us}) !=
+            CommandTrackResult::tracked)
+            return DispatchError::command_rejected;
+    }
+    for (std::uint32_t attempt = 0; attempt < repetitions; ++attempt)
+        sender_(encoded, asset.command_endpoint);
+    return command;
+}
+
+AssignmentResult ServerRuntime::unassign(const std::uint64_t track_id) {
+    const auto result = assignments_.unassign(track_id);
+    if (result == AssignmentResult::completed) {
+        std::lock_guard lock(routed_point_mutex_);
+        routed_points_.erase(track_id);
+    }
+    return result;
+}
+
+EmergencyStopResult ServerRuntime::emergency_stop_all(
+    const std::uint64_t now_us) {
+    EmergencyStopResult result;
+    if (now_us == 0 ||
+        now_us > std::numeric_limits<std::uint64_t>::max() -
+                     config_.attack_commands.command_validity_us)
+        return result;
+    const auto assets = registry_.known_assets(AssetRole::effector, now_us);
+    for (const auto& asset : assets) {
+        const auto dispatched = dispatch_safety_command(
+            asset, AttackAction::emergency_stop,
+            config_.emergency_stop_repetitions, now_us);
+        if (std::holds_alternative<AttackCommand>(dispatched)) {
+            ++result.assets;
+            result.datagrams += config_.emergency_stop_repetitions;
+        }
+    }
+    return result;
 }
 
 CommandRetryResult ServerRuntime::retry_unacknowledged(const std::uint64_t now_us) {

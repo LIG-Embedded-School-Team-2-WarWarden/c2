@@ -45,6 +45,11 @@ struct CommandRetryResult {
     std::size_t exhausted{};
 };
 
+struct EmergencyStopResult {
+    std::size_t assets{};
+    std::size_t datagrams{};
+};
+
 enum class InboundResult { accepted, invalid_packet, unsupported_message, rejected };
 enum class DispatchError {
     connection_unavailable,
@@ -80,6 +85,12 @@ public:
     [[nodiscard]] AttackDispatchResult attack(
         AttackAction action, std::uint64_t target_id,
         std::uint32_t duration_ms, std::uint64_t now_us);
+    [[nodiscard]] AttackDispatchResult stop_effector(
+        std::uint64_t effector_asset_id, std::uint64_t now_us);
+    [[nodiscard]] AttackDispatchResult emergency_stop_effector(
+        std::uint64_t effector_asset_id, std::uint64_t now_us);
+    [[nodiscard]] AssignmentResult unassign(std::uint64_t track_id);
+    [[nodiscard]] EmergencyStopResult emergency_stop_all(std::uint64_t now_us);
     void send_heartbeats(std::uint64_t now_us, std::uint64_t uptime_ms);
     [[nodiscard]] CommandRetryResult retry_unacknowledged(std::uint64_t now_us);
     [[nodiscard]] std::size_t pending_command_count() const;
@@ -118,6 +129,9 @@ private:
         const TrackSnapshot& track,
         const std::vector<EffectorCandidate>& candidates,
         std::uint64_t now_us);
+    [[nodiscard]] AttackDispatchResult dispatch_safety_command(
+        const AssetSnapshot& asset, AttackAction action,
+        std::uint32_t repetitions, std::uint64_t now_us);
     void assign_effector_identity(EffectorTurretCommand& command);
     void assign_effector_identity(AttackCommand& command);
 
@@ -136,6 +150,13 @@ private:
     std::mutex effector_identity_mutex_;
     std::uint32_t next_effector_command_id_;
     std::uint32_t next_effector_sequence_;
+    struct RoutedPoint {
+        std::uint64_t asset_id{};
+        std::uint64_t session_id{};
+        EffectorTurretCommand command;
+    };
+    mutable std::mutex routed_point_mutex_;
+    std::unordered_map<std::uint64_t, RoutedPoint> routed_points_;
     std::mutex heartbeat_mutex_;
     std::uint32_t next_observation_heartbeat_sequence_{1};
     std::uint32_t next_effector_heartbeat_sequence_{1};

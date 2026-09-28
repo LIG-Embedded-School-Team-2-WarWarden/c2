@@ -99,6 +99,8 @@ public:
     [[nodiscard]] std::vector<AssetSnapshot> assets(
         AssetRole role, std::uint64_t now_us);
     [[nodiscard]] std::vector<AssetSnapshot> assets(std::uint64_t now_us);
+    [[nodiscard]] std::vector<AssetSnapshot> known_assets(
+        AssetRole role, std::uint64_t now_us);
     std::size_t expire(std::uint64_t now_us);
     std::size_t prune(std::uint64_t now_us);
 

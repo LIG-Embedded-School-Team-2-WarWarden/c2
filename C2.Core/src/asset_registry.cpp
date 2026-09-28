@@ -279,6 +279,19 @@ std::vector<AssetSnapshot> AssetRegistry::assets(const std::uint64_t now_us) {
     return result;
 }
 
+std::vector<AssetSnapshot> AssetRegistry::known_assets(
+    const AssetRole role, const std::uint64_t now_us) {
+    (void)prune(now_us);
+    std::lock_guard lock(mutex_);
+    std::vector<AssetSnapshot> result;
+    for (const auto& [id, entry] : entries_) {
+        (void)id;
+        if (entry.registration.role == role)
+            result.push_back(snapshot_locked(entry, now_us));
+    }
+    return result;
+}
+
 void AssetRegistry::expire_locked(const std::uint64_t now_us, std::size_t& count) {
     for (auto& [id, entry] : entries_) {
         (void)id;
