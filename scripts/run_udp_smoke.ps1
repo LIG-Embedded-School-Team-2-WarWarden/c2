@@ -31,7 +31,86 @@ function Start-RedirectedProcess {
     $info.RedirectStandardInput = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
-    return [System.Diagnostics.Process]::Start($info)
+    $process = [System.Diagnostics.Process]::Start($info)
+    $outputLines = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+    $errorLines = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+    $process | Add-Member -NotePropertyName OutputLines -NotePropertyValue $outputLines
+    $process | Add-Member -NotePropertyName ErrorLines -NotePropertyValue $errorLines
+    $process | Add-Member -NotePropertyName OutputReadTask -NotePropertyValue $process.StandardOutput.ReadLineAsync()
+    $process | Add-Member -NotePropertyName ErrorReadTask -NotePropertyValue $process.StandardError.ReadLineAsync()
+    return $process
+}
+
+function Update-ProcessOutput {
+    param([System.Diagnostics.Process]$Process)
+    foreach ($stream in @(
+        @{ Task = 'OutputReadTask'; Lines = 'OutputLines'; Reader = 'StandardOutput' },
+        @{ Task = 'ErrorReadTask'; Lines = 'ErrorLines'; Reader = 'StandardError' }
+    )) {
+        while ($null -ne $Process.($stream.Task) -and
+               $Process.($stream.Task).IsCompleted) {
+            $task = $Process.($stream.Task)
+            if ($task.IsFaulted) {
+                throw "Failed to read process output: $($task.Exception)"
+            }
+            $line = $task.GetAwaiter().GetResult()
+            if ($null -eq $line) {
+                $Process.($stream.Task) = $null
+                break
+            }
+            $Process.($stream.Lines).Enqueue($line)
+            $Process.($stream.Task) = $Process.($stream.Reader).ReadLineAsync()
+        }
+    }
+}
+
+function Get-ProcessText {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [switch]$ErrorStream
+    )
+    Update-ProcessOutput $Process
+    if ($ErrorStream) { return (@($Process.ErrorLines) -join "`n") }
+    return (@($Process.OutputLines) -join "`n")
+}
+
+function Wait-OutputPattern {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [string]$Pattern,
+        [int]$TimeoutMs = 10000,
+        [string]$ProbeCommand = ''
+    )
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    $nextProbe = 0
+    while ($timer.ElapsedMilliseconds -lt $TimeoutMs) {
+        if ($Process.HasExited) {
+            throw "Process exited before output '${Pattern}'. Exit=$($Process.ExitCode), stderr=$(Get-ProcessText $Process -ErrorStream)"
+        }
+        if ((Get-ProcessText $Process) -match $Pattern) { return }
+        if ($ProbeCommand -and $timer.ElapsedMilliseconds -ge $nextProbe) {
+            $Process.StandardInput.WriteLine($ProbeCommand)
+            $nextProbe = $timer.ElapsedMilliseconds + 200
+        }
+        Start-Sleep -Milliseconds 20
+    }
+    throw "Timed out waiting for output '${Pattern}'. stdout=$(Get-ProcessText $Process), stderr=$(Get-ProcessText $Process -ErrorStream)"
+}
+
+function Wait-SentCount {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [int]$Expected,
+        [int]$TimeoutMs = 5000
+    )
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($timer.ElapsedMilliseconds -lt $TimeoutMs) {
+        $count = ([regex]::Matches((Get-ProcessText $Process), '> sent')).Count
+        if ($count -ge $Expected) { return }
+        if ($Process.HasExited) { break }
+        Start-Sleep -Milliseconds 20
+    }
+    throw "Timed out waiting for ${Expected} successful commands. stdout=$(Get-ProcessText $Process), stderr=$(Get-ProcessText $Process -ErrorStream)"
 }
 
 function Assert-InvalidConfiguration {
@@ -45,7 +124,7 @@ function Assert-InvalidConfiguration {
         if (-not $process.WaitForExit(5000)) {
             throw "Invalid-configuration process did not exit: $Path"
         }
-        $errorOutput = $process.StandardError.ReadToEnd()
+        $errorOutput = Get-ProcessText $process -ErrorStream
         if ($process.ExitCode -eq 0 -or $errorOutput -notmatch [regex]::Escape($ExpectedError)) {
             throw "Expected configuration error '${ExpectedError}'. Exit=$($process.ExitCode), stderr=${errorOutput}"
         }
@@ -76,6 +155,7 @@ try {
         '--command-attempts', '4',
         '--emergency-stop-repetitions', '4'
     )
+    Wait-OutputPattern $server 'C2 server started'
     $observation1 = Start-RedirectedProcess $observationPath @(
         '--asset-id', '101', '--listen-port', '0', '--c2-port', '15000',
         '--status-interval-ms', '80',
@@ -111,20 +191,22 @@ try {
     $assets = @($observation1, $observation2, $effector1, $effector2, $effector3)
     $processes = @($server) + $assets
 
-    Start-Sleep -Seconds 2
-    foreach ($entry in @(
-        @{ Command = 'scan 101 10 5'; Delay = 80 },
-        @{ Command = 'obs-stop 101'; Delay = 80 },
-        @{ Command = 'obs-home 101'; Delay = 80 },
-        @{ Command = 'point 1'; Delay = 80 },
-        @{ Command = 'arm 1'; Delay = 80 },
-        @{ Command = 'start 1 100'; Delay = 150 }
+    Wait-OutputPattern $server 'assets=5 tracks=2' 10000 'status'
+    $sent = 0
+    foreach ($command in @(
+        'scan 101 10 5',
+        'obs-stop 101',
+        'obs-home 101',
+        'point 1',
+        'arm 1',
+        'start 1 100'
     )) {
-        $server.StandardInput.WriteLine($entry.Command)
-        Start-Sleep -Milliseconds $entry.Delay
+        $server.StandardInput.WriteLine($command)
+        ++$sent
+        Wait-SentCount $server $sent
     }
     $server.StandardInput.WriteLine('assets')
-    Start-Sleep -Milliseconds 100
+    Wait-OutputPattern $server 'asset=201 role=2 session=\d+'
     $effector1.StandardInput.WriteLine('quit')
     if (-not $effector1.WaitForExit(5000)) {
         throw 'Original effector 201 did not exit for session replacement'
@@ -137,10 +219,14 @@ try {
     )
     $assets += $effector1Restart
     $processes += $effector1Restart
-    Start-Sleep -Seconds 1
-    $server.StandardInput.WriteLine('assets')
+    $originalSessionMatches = [regex]::Matches(
+        (Get-ProcessText $server), 'asset=201 role=2 session=(\d+)')
+    $originalSession = $originalSessionMatches[0].Groups[1].Value
+    Wait-OutputPattern $server "asset=201 role=2 session=(?!${originalSession}\b)\d+" 10000 'assets'
     $server.StandardInput.WriteLine('status')
+    Wait-OutputPattern $server 'assets=5 tracks=2 assignments=1 pending_commands=0' 10000 'status'
     $server.StandardInput.WriteLine('estop-all')
+    Wait-OutputPattern $server 'estop assets=3 datagrams=12'
     $server.StandardInput.WriteLine('quit')
     foreach ($asset in $assets) {
         if (-not $asset.HasExited) { $asset.StandardInput.WriteLine('quit') }
@@ -152,8 +238,10 @@ try {
         }
     }
 
-    $serverOutput = $server.StandardOutput.ReadToEnd()
-    $allErrors = ($processes | ForEach-Object { $_.StandardError.ReadToEnd() }) -join "`n"
+    $serverOutput = Get-ProcessText $server
+    $allErrors = ($processes | ForEach-Object {
+        Get-ProcessText $_ -ErrorStream
+    }) -join "`n"
     $sentCount = ([regex]::Matches($serverOutput, '> sent')).Count
     if ($sentCount -ne 6) {
         throw "Expected six successful commands but observed ${sentCount}.`n${serverOutput}`n${allErrors}"

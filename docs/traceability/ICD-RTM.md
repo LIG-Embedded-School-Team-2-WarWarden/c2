@@ -43,7 +43,7 @@
 | ICD-TC-015 | 관측 SCAN/STOP/HOME 상태전이 | 통과 |
 | ICD-TC-016 | 저장소/할당/ACK 경합 동시성 | 통과 |
 | ICD-TC-017 | 잘못된 실행 설정과 용량 상한 | 통과 |
-| ICD-TC-018 | 관측 2 + 타격 3 UDP, 자산 재시작 session 교체 | 통과 |
+| ICD-TC-018 | 관측 2 + 타격 3 UDP, 조건 대기, 자산 재시작 session 교체 | 통과 |
 | ICD-TC-019 | 실제 LiDAR 로컬→PROJECT_FRAME 변환 | 실제 관측 HW/SW 필요 |
 
 ## 의도적으로 남은 항목
