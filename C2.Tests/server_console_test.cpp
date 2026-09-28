@@ -67,9 +67,9 @@ TEST(ServerConsoleTest, PreservesLegacySingleAssetSyntaxDuringMigration) {
 }
 
 TEST(ServerConsoleTest, RejectsMissingExtraMalformedAndZeroArguments) {
-    for (const auto text : {"", "unknown", "assets extra", "scan 1 2",
+    for (const auto text : {"", "unknown", "assets extra", "scan 1",
                             "scan 0 1 2", "assign 0", "assign 1 0",
-                            "start 1 0", "stop", "estop-all 1"}) {
+                            "start 1 0", "stop 0", "estop-all 1"}) {
         SCOPED_TRACE(text);
         EXPECT_TRUE(std::holds_alternative<c2::ConsoleParseError>(
             c2::parse_console_command(text)));

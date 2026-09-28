@@ -28,16 +28,30 @@ ConsoleParseResult parse_console_command(const std::string_view line) {
     else if (name == "scan" || name == "observe") {
         command.kind = name == "scan" ? ConsoleCommandKind::scan
                                        : ConsoleCommandKind::observe;
-        if (!(input >> command.asset_id >> command.pan_deg >> command.tilt_deg) ||
-            !positive(command.asset_id) || !std::isfinite(command.pan_deg) ||
+        const auto arguments = input.tellg();
+        bool legacy{};
+        if (!(input >> command.asset_id >> command.pan_deg >> command.tilt_deg)) {
+            input.clear();
+            input.seekg(arguments);
+            command.asset_id = 0;
+            legacy = true;
+            if (!(input >> command.pan_deg >> command.tilt_deg))
+                return ConsoleParseError::invalid_arguments;
+        }
+        if ((!legacy && !positive(command.asset_id)) ||
+            !std::isfinite(command.pan_deg) ||
             !std::isfinite(command.tilt_deg))
             return ConsoleParseError::invalid_arguments;
     } else if (name == "obs-stop" || name == "obs-home") {
         command.kind = name == "obs-stop"
             ? ConsoleCommandKind::observation_stop
             : ConsoleCommandKind::observation_home;
-        if (!(input >> command.asset_id) || !positive(command.asset_id))
-            return ConsoleParseError::invalid_arguments;
+        if (input >> command.asset_id) {
+            if (!positive(command.asset_id))
+                return ConsoleParseError::invalid_arguments;
+        } else {
+            input.clear();
+        }
     } else if (name == "assign") {
         command.kind = ConsoleCommandKind::assign;
         if (!(input >> command.track_id) || !positive(command.track_id))
@@ -63,8 +77,12 @@ ConsoleParseResult parse_console_command(const std::string_view line) {
     } else if (name == "stop" || name == "estop") {
         command.kind = name == "stop" ? ConsoleCommandKind::stop
                                        : ConsoleCommandKind::emergency_stop;
-        if (!(input >> command.asset_id) || !positive(command.asset_id))
-            return ConsoleParseError::invalid_arguments;
+        if (input >> command.asset_id) {
+            if (!positive(command.asset_id))
+                return ConsoleParseError::invalid_arguments;
+        } else {
+            input.clear();
+        }
     } else {
         return ConsoleParseError::unknown_command;
     }

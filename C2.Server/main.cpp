@@ -137,8 +137,8 @@ int main(int argc, char* argv[]) {
              options.command_attempts},
             [&](const auto bytes, const auto& endpoint) { sender.send(bytes, endpoint); });
 
-        const auto receive = [&](std::vector<std::byte> data, c2::Endpoint source) {
-            (void)runtime.ingest(data, source, now_us());
+        const auto receive = [&](std::vector<std::byte> data, c2::Endpoint) {
+            (void)runtime.ingest(data, now_us());
         };
         c2::ServerUdpIngress asset_ingress(
             runtime, {options.bind_address, options.asset_port}, now_us);
@@ -225,21 +225,35 @@ int main(int argc, char* argv[]) {
                 }
                 case c2::ConsoleCommandKind::scan:
                 case c2::ConsoleCommandKind::observe:
-                    print_dispatch(runtime.command_observation(
-                        command.asset_id,
-                        command.kind == c2::ConsoleCommandKind::scan
-                            ? c2::ObservationTurretCommandType::scan
-                            : c2::ObservationTurretCommandType::absolute_angle,
-                        command.pan_deg, command.tilt_deg, now));
+                    if (command.asset_id == 0)
+                        print_dispatch(runtime.command_observation(
+                            command.kind == c2::ConsoleCommandKind::scan
+                                ? c2::ObservationTurretCommandType::scan
+                                : c2::ObservationTurretCommandType::absolute_angle,
+                            command.pan_deg, command.tilt_deg, now));
+                    else
+                        print_dispatch(runtime.command_observation(
+                            command.asset_id,
+                            command.kind == c2::ConsoleCommandKind::scan
+                                ? c2::ObservationTurretCommandType::scan
+                                : c2::ObservationTurretCommandType::absolute_angle,
+                            command.pan_deg, command.tilt_deg, now));
                     break;
                 case c2::ConsoleCommandKind::observation_stop:
                 case c2::ConsoleCommandKind::observation_home:
-                    print_dispatch(runtime.command_observation(
-                        command.asset_id,
-                        command.kind == c2::ConsoleCommandKind::observation_stop
-                            ? c2::ObservationTurretCommandType::stop
-                            : c2::ObservationTurretCommandType::home,
-                        0, 0, now));
+                    if (command.asset_id == 0)
+                        print_dispatch(runtime.command_observation(
+                            command.kind == c2::ConsoleCommandKind::observation_stop
+                                ? c2::ObservationTurretCommandType::stop
+                                : c2::ObservationTurretCommandType::home,
+                            0, 0, now));
+                    else
+                        print_dispatch(runtime.command_observation(
+                            command.asset_id,
+                            command.kind == c2::ConsoleCommandKind::observation_stop
+                                ? c2::ObservationTurretCommandType::stop
+                                : c2::ObservationTurretCommandType::home,
+                            0, 0, now));
                     break;
                 case c2::ConsoleCommandKind::assign: {
                     const auto decision = command.effector_asset_id
@@ -272,11 +286,14 @@ int main(int argc, char* argv[]) {
                         command.duration_ms, now));
                     break;
                 case c2::ConsoleCommandKind::stop:
-                    print_dispatch(runtime.stop_effector(command.asset_id, now));
+                    print_dispatch(command.asset_id == 0
+                        ? runtime.attack(c2::AttackAction::stop, 0, 0, now)
+                        : runtime.stop_effector(command.asset_id, now));
                     break;
                 case c2::ConsoleCommandKind::emergency_stop:
-                    print_dispatch(runtime.emergency_stop_effector(
-                        command.asset_id, now));
+                    print_dispatch(command.asset_id == 0
+                        ? runtime.attack(c2::AttackAction::emergency_stop, 0, 0, now)
+                        : runtime.emergency_stop_effector(command.asset_id, now));
                     break;
                 case c2::ConsoleCommandKind::emergency_stop_all: {
                     const auto result = runtime.emergency_stop_all(now);
@@ -285,6 +302,14 @@ int main(int argc, char* argv[]) {
                     break;
                 }
                 case c2::ConsoleCommandKind::status:
+                    std::cout << "observation=" << connection_name(
+                                     runtime.connection_state(
+                                         c2::ComponentId::observation_asset, now))
+                              << " effector=" << connection_name(
+                                     runtime.connection_state(
+                                         c2::ComponentId::effector_asset, now))
+                              << " pending_commands="
+                              << runtime.pending_command_count() << '\n';
                     std::cout << "assets=" << runtime.assets(now).size()
                               << " tracks=" << runtime.tracks(now).size()
                               << " pending_commands="

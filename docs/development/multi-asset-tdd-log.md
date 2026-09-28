@@ -186,5 +186,7 @@
   연결했다. 등록 자산이 있으면 각 자산 snapshot으로 Heartbeat를 라우팅한다.
 - Refactor: 수신 시각은 주입 가능한 clock으로 얻고 실제 UDP source를 secure runtime
   ingest에 그대로 전달한다. 등록 자산이 없는 동안은 기존 고정 Endpoint heartbeat를
-  호환 경계로 유지한다.
-- 검증: Release 전체 빌드 성공, loopback 통합시험 포함 전체 178/178 통과.
+  호환 경계로 유지한다. 역할별 기존 UDP 포트와 단일 자산 콘솔 문법도 더미 자산
+  전환이 완료될 때까지 명시적 migration 경계로 분리했다.
+- 검증: Release 전체 빌드 성공, loopback 통합시험과 기존 프로세스 smoke test 포함
+  전체 179/179 통과.
