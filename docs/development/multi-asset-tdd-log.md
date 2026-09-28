@@ -223,3 +223,26 @@
 - Refactor: legacy detection ID는 TrackStore에 없으므로 기존 단일 자산 지향 경로로
   계속 분기된다. 다중 프로세스 smoke에서 명시적 assign을 제거해 자동 경로를 검증했다.
 - 검증: Release 전체 빌드, 전체 시험 180/180, 다중 프로세스 smoke 통과.
+
+## Cycle 20 — 운용 상태와 명령 결과 조회
+
+- Red: 기본 할당이 지향 capability만 가진 자산을 허용하는 문제, 전체 할당과 명령
+  결과를 runtime에서 조회할 수 없는 문제, ACK와 재시도 소진 경합 테스트를 먼저
+  추가해 API 부재로 빌드 실패를 확인했다.
+- Green: 기본 할당 capability를 POINT+ATTACK으로 강화하고 결정적 할당 snapshot과
+  bounded 명령 outcome snapshot을 공개했다. `assets`, `status`, `outcomes` 콘솔 출력에
+  자산 상태·할당·종결 사유를 연결했다.
+- Refactor: 연결과 command terminal state를 숫자 대신 운용자가 읽을 수 있는 이름으로
+  표시하고 프로세스 smoke의 상태 검증을 새 출력 계약에 맞췄다.
+- 검증: Release 전체 빌드, 전체 시험 184/184, 다중 프로세스 smoke 통과.
+
+## Cycle 21 — 다중 자산 런타임 설정 일원화
+
+- Red: 실행 옵션을 바꿔도 동적 TrackStore/AssetRegistry/CommandTracker에는 기본값이
+  남는 문제를 옵션→runtime config 전파 테스트로 고정했다. parser 모듈 부재로 빌드
+  실패를 확인했다.
+- Green: `ServerOptions` 파서와 config factory를 코어로 분리하고 자산·트랙·상태·명령·
+  할당 용량과 timeout을 모두 외부화했다.
+- Refactor: 0, 시간 변환 overflow, 전체 상한보다 큰 자산별 상한을 서버 시작 전에
+  일관되게 거부하고 레거시/동적 경로의 공통 옵션값을 한 곳에서 생성한다.
+- 검증: Release 전체 빌드, 전체 시험 187/187, 다중 프로세스 smoke 통과.
