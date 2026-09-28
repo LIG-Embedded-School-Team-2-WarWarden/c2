@@ -144,3 +144,24 @@
 - Refactor: 기존 detection ID 기반 호환 서비스는 32비트 범위를 명시적으로 검사해
   조용한 truncation 대신 `target_unavailable`을 반환하도록 했다.
 - 검증: Release 전체 빌드 성공, 전체 시험 170/170 통과.
+
+## Cycle 13 — 할당 자산별 POINT와 공격 안전 라우팅
+
+- Red: POINT가 할당된 자산의 Endpoint와 세션으로 전송되는지, POINT 없는 ARM 거부,
+  READY/ALIGNED 및 armed 상태 검사, START 후 unassign 거부, 공격 중 단절 시
+  `operator_action_required`, 단절 자산 STOP 전송 테스트를 먼저 추가했다.
+- Green: 전역 track과 할당 snapshot으로 지향각을 계산하고 자산·세션별 pending 명령을
+  생성했다. ARM/START는 현재 등록 세션, 연결, Pose, status, 지향 명령 만료와 target
+  일치를 모두 검증한다.
+- Refactor: track별 마지막 지향 명령을 bounded assignment 수명에 결합하고 안전 해제 시
+  제거한다. 공격 시작 상태는 START 명령 등록 성공 뒤에만 전환한다.
+
+## Cycle 14 — 보존 자산 STOP과 ESTOP
+
+- Red: unregister 자산이 보존 기간 동안 조회되는지, 특정 자산 ESTOP과 `estop-all`이
+  보존 Endpoint로 반복 전송되며 반복 패킷의 command ID가 같은지 테스트했다.
+- Green: 역할별 `known_assets` snapshot과 특정 자산/전체 자산 비상정지 API를 구현했다.
+  보존 기간이 끝난 자산은 자동 정리돼 이후 전체 비상정지 대상에서 제외된다.
+- Refactor: STOP과 ESTOP의 헤더 생성, 세션 지정, 반복 송신을 공통 안전 명령 경로로
+  통합했다. STOP은 ACK 추적하고 ESTOP은 동일 datagram을 설정 횟수만큼 즉시 보낸다.
+- 검증: Release 전체 빌드 성공, 전체 시험 172/172 통과.
