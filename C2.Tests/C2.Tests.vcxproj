@@ -120,6 +120,7 @@
     <ClCompile Include="protocol_status_test.cpp" />
     <ClCompile Include="server_runtime_test.cpp" />
     <ClCompile Include="server_console_test.cpp" />
+    <ClCompile Include="server_options_test.cpp" />
     <ClCompile Include="state_store_test.cpp" />
     <ClCompile Include="system_integration_test.cpp" />
     <ClCompile Include="telemetry_store_test.cpp" />

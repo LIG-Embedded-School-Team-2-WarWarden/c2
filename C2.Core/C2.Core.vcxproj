@@ -156,6 +156,7 @@
     <ClCompile Include="src\protocol_validation.cpp" />
     <ClCompile Include="src\server_runtime.cpp" />
     <ClCompile Include="src\server_console.cpp" />
+    <ClCompile Include="src\server_options.cpp" />
     <ClCompile Include="src\server_udp_ingress.cpp" />
     <ClCompile Include="src\state_store.cpp" />
     <ClCompile Include="src\telemetry_store.cpp" />
@@ -177,6 +178,7 @@
     <ClInclude Include="include\c2\protocol_validation.hpp" />
     <ClInclude Include="include\c2\server_runtime.hpp" />
     <ClInclude Include="include\c2\server_console.hpp" />
+    <ClInclude Include="include\c2\server_options.hpp" />
     <ClInclude Include="include\c2\server_udp_ingress.hpp" />
     <ClInclude Include="include\c2\state_store.hpp" />
     <ClInclude Include="include\c2\telemetry_store.hpp" />
