@@ -197,6 +197,7 @@ private:
     static std::uint64_t pending_key(ComponentId source, std::uint32_t command_id) noexcept;
     mutable std::mutex pending_mutex_;
     std::unordered_map<std::uint64_t, PendingCommand> pending_commands_;
+    std::mutex asset_lifecycle_mutex_;
     mutable std::mutex inbound_rejection_mutex_;
     std::deque<InboundRejection> inbound_rejections_;
     std::uint64_t next_inbound_rejection_id_{1};

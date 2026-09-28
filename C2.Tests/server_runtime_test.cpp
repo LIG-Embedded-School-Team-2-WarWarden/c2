@@ -6,6 +6,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <latch>
+#include <thread>
 #include <variant>
 #include <vector>
 
@@ -532,6 +534,46 @@ TEST(ServerRuntimeRegistrationTest, NewSessionEndsPreviousSessionPendingCommands
     ASSERT_EQ(server.ingest(bytes(new_session), {"10.10.0.8", 40'002}, 104),
               c2::InboundResult::accepted);
     EXPECT_EQ(server.pending_command_count(), 0U);
+}
+
+TEST(ServerRuntimeRegistrationTest, LeavesNoPendingCommandAfterUnregisterRace) {
+    for (std::uint32_t iteration = 0; iteration < 200; ++iteration) {
+        c2::ServerRuntime server(config(), [](auto, auto) {});
+        const c2::Endpoint source{"10.10.0.7", 40'001};
+        const auto asset = registration(
+            101, 10, c2::AssetRole::observation, 51'101);
+        ASSERT_EQ(server.ingest(bytes(asset), source, 100),
+                  c2::InboundResult::accepted);
+        ASSERT_EQ(server.ingest(bytes(heartbeat(asset, 2)), source, 101),
+                  c2::InboundResult::accepted);
+        ASSERT_EQ(server.ingest(bytes(pose(asset, 3, 0)), source, 102),
+                  c2::InboundResult::accepted);
+        c2::AssetUnregister unregister{
+            {c2::protocol_version, 4, 103,
+             c2::ComponentId::observation_asset,
+             c2::ComponentId::command_and_control, 101, 10}, "race"};
+        std::latch ready(2);
+        std::latch start(1);
+        std::jthread command([&] {
+            ready.count_down();
+            start.wait();
+            (void)server.command_observation(
+                101, c2::ObservationTurretCommandType::home, 0, 0, 104);
+        });
+        std::jthread remove([&] {
+            ready.count_down();
+            start.wait();
+            (void)server.ingest(bytes(unregister), source, 104);
+        });
+        ready.wait();
+        start.count_down();
+        command.join();
+        remove.join();
+
+        EXPECT_EQ(server.pending_command_count(), 0U)
+            << "iteration=" << iteration;
+        EXPECT_EQ(server.assets(105).size(), 0U);
+    }
 }
 
 TEST(ServerRuntimeRegistrationTest, SendsHeartbeatToEveryRegisteredAssetEndpoint) {

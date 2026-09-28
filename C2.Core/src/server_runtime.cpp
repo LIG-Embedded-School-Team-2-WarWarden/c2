@@ -56,6 +56,7 @@ InboundResult ServerRuntime::ingest(
         [&](const auto& message) -> InboundResult {
             using T = std::decay_t<decltype(message)>;
             if constexpr (std::is_same_v<T, AssetRegistration>) {
+                std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
                 const auto previous = registry_.asset(
                     message.header.asset_id, received_at_us);
                 const auto result = registry_.register_asset(
@@ -78,6 +79,7 @@ InboundResult ServerRuntime::ingest(
                                   kind, &message.header, result, received_at_us),
                               InboundResult::rejected);
             } else if constexpr (std::is_same_v<T, AssetUnregister>) {
+                std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
                 const auto result = registry_.unregister_asset(
                     message, source, received_at_us);
                 if (result != AssetRegistryResult::unregistered) {
@@ -193,6 +195,7 @@ InboundResult ServerRuntime::ingest(
 ObservationDispatchResult ServerRuntime::command_observation(
     const std::uint64_t asset_id, const ObservationTurretCommandType type,
     const float pan_deg, const float tilt_deg, const std::uint64_t now_us) {
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     const auto asset = registry_.asset(asset_id, now_us);
     if (!asset || asset->role != AssetRole::observation ||
         asset->connection_state != AssetConnectionState::connected)
@@ -295,6 +298,7 @@ ObservationDispatchResult ServerRuntime::command_observation(
 
 EffectorDispatchResult ServerRuntime::point_effector(
     const std::uint64_t target_id, const std::uint64_t now_us) {
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     auto assignment = assignments_.assignment(target_id);
     if (!assignment && tracks_.track(target_id, now_us)) {
         const auto decision = assign(target_id, now_us);
@@ -359,6 +363,7 @@ EffectorDispatchResult ServerRuntime::point_effector(
 AttackDispatchResult ServerRuntime::attack(
     const AttackAction action, const std::uint64_t target_id,
     const std::uint32_t duration_ms, const std::uint64_t now_us) {
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     if ((action == AttackAction::arm || action == AttackAction::start) &&
         assignments_.assignment(target_id)) {
         const auto assignment = assignments_.assignment(target_id);
@@ -437,6 +442,7 @@ AttackDispatchResult ServerRuntime::attack(
 
 AttackDispatchResult ServerRuntime::stop_effector(
     const std::uint64_t effector_asset_id, const std::uint64_t now_us) {
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     const auto asset = registry_.asset(effector_asset_id, now_us);
     if (!asset || asset->role != AssetRole::effector)
         return DispatchError::command_rejected;
@@ -445,6 +451,7 @@ AttackDispatchResult ServerRuntime::stop_effector(
 
 AttackDispatchResult ServerRuntime::emergency_stop_effector(
     const std::uint64_t effector_asset_id, const std::uint64_t now_us) {
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     const auto asset = registry_.asset(effector_asset_id, now_us);
     if (!asset || asset->role != AssetRole::effector)
         return DispatchError::command_rejected;
@@ -493,6 +500,7 @@ AssignmentResult ServerRuntime::unassign(const std::uint64_t track_id) {
 
 EmergencyStopResult ServerRuntime::emergency_stop_all(
     const std::uint64_t now_us) {
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     EmergencyStopResult result;
     if (now_us == 0 ||
         now_us > std::numeric_limits<std::uint64_t>::max() -
