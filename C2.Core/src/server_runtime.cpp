@@ -579,6 +579,14 @@ std::optional<AssetAssignment> ServerRuntime::assignment(
     return assignments_.assignment(track_id);
 }
 
+std::vector<AssetAssignment> ServerRuntime::assignments() const {
+    return assignments_.assignments();
+}
+
+std::vector<CommandOutcome> ServerRuntime::command_outcomes() const {
+    return command_tracker_.outcomes();
+}
+
 std::vector<EffectorCandidate> ServerRuntime::effector_candidates(
     const std::uint64_t now_us) {
     std::vector<EffectorCandidate> candidates;

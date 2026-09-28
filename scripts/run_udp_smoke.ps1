@@ -158,7 +158,7 @@ try {
     if ($sentCount -ne 6) {
         throw "Expected six successful commands but observed ${sentCount}.`n${serverOutput}`n${allErrors}"
     }
-    if ($serverOutput -notmatch 'assets=5 tracks=2 pending_commands=0' -or
+    if ($serverOutput -notmatch 'assets=5 tracks=2 assignments=1 pending_commands=0' -or
         $serverOutput -notmatch 'estop assets=3 datagrams=12') {
         throw "Dynamic assets or emergency stop summary was incorrect.`n${serverOutput}`n${allErrors}"
     }

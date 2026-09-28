@@ -158,3 +158,27 @@ TEST(AssetAssignmentServiceTest, DistinguishesNoCandidateFromTemporaryUnavailabi
     EXPECT_EQ(service.assign(assignment_track(1), {disconnected}).result,
               c2::AssignmentResult::temporarily_unavailable);
 }
+
+TEST(AssetAssignmentServiceTest, DefaultPolicyRequiresPointAndAttackCapabilities) {
+    c2::AssetAssignmentService service({});
+    auto point_only = assignment_candidate(10);
+    point_only.asset.capabilities = c2::capability::effector_point;
+
+    EXPECT_EQ(service.assign(assignment_track(1), {point_only}).result,
+              c2::AssignmentResult::no_candidate);
+}
+
+TEST(AssetAssignmentServiceTest, ExposesDeterministicAssignmentSnapshot) {
+    c2::AssetAssignmentService service(assignment_config());
+    ASSERT_EQ(service.assign(
+                  assignment_track(20), {assignment_candidate(20, 90, true)}).result,
+              c2::AssignmentResult::assigned);
+    ASSERT_EQ(service.assign(
+                  assignment_track(10), {assignment_candidate(10, 90, true)}).result,
+              c2::AssignmentResult::assigned);
+
+    const auto assignments = service.assignments();
+    ASSERT_EQ(assignments.size(), 2U);
+    EXPECT_EQ(assignments[0].track_id, 10U);
+    EXPECT_EQ(assignments[1].track_id, 20U);
+}

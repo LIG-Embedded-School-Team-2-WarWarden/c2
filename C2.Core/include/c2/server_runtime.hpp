@@ -107,6 +107,8 @@ public:
         std::uint64_t now_us);
     [[nodiscard]] std::optional<AssetAssignment> assignment(
         std::uint64_t track_id) const;
+    [[nodiscard]] std::vector<AssetAssignment> assignments() const;
+    [[nodiscard]] std::vector<CommandOutcome> command_outcomes() const;
     [[nodiscard]] std::optional<ObservationStatus> observation_status() const;
     [[nodiscard]] std::optional<EffectorStatus> effector_status() const;
     [[nodiscard]] std::optional<CommandAck> acknowledgement(

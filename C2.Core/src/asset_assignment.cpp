@@ -174,6 +174,17 @@ std::optional<AssetAssignment> AssetAssignmentService::assignment(
     return found->second;
 }
 
+std::vector<AssetAssignment> AssetAssignmentService::assignments() const {
+    std::lock_guard lock(mutex_);
+    std::vector<AssetAssignment> result;
+    result.reserve(assignments_.size());
+    for (const auto& [track_id, assignment] : assignments_) {
+        (void)track_id;
+        result.push_back(assignment);
+    }
+    return result;
+}
+
 bool AssetAssignmentService::mark_attack_started(const std::uint64_t track_id) {
     std::lock_guard lock(mutex_);
     const auto found = assignments_.find(track_id);
