@@ -227,6 +227,7 @@ try {
     Wait-OutputPattern $server 'assets=5 tracks=2 assignments=1 pending_commands=0' 10000 'status'
     $server.StandardInput.WriteLine('estop-all')
     Wait-OutputPattern $server 'estop assets=3 datagrams=12'
+    Wait-OutputPattern $server '(?s)estop assets=3 datagrams=12.*asset=201.*effector_state=3.*asset=202.*effector_state=3.*asset=203.*effector_state=3' 10000 'assets'
     $server.StandardInput.WriteLine('quit')
     foreach ($asset in $assets) {
         if (-not $asset.HasExited) { $asset.StandardInput.WriteLine('quit') }
@@ -264,7 +265,7 @@ try {
     Assert-InvalidConfiguration $serverPath @('--heartbeat-interval-ms', '0') 'invalid heartbeat interval'
     Assert-InvalidConfiguration $observationPath @('--target-interval-ms', '0') 'invalid target interval'
     Assert-InvalidConfiguration $effectorPath @('--status-interval-ms', '0') 'invalid status interval'
-    Write-Host 'UDP process smoke test passed: 2 observations, 3 effectors, session replacement, 2 tracks, automatic assignment, attack flow, estop-all.'
+    Write-Host 'UDP process smoke test passed: 2 observations, 3 effectors, session replacement, 2 tracks, automatic assignment, attack flow, estop-all safe states.'
 } finally {
     foreach ($process in $processes) {
         if ($null -ne $process -and -not $process.HasExited) {

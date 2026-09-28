@@ -272,7 +272,8 @@
 - Red: 기존 smoke가 시작 2초, 명령별 80ms, 재시작 1초의 고정 sleep으로 준비 상태를
   추측해 느린 CI나 빠른 로컬 환경에서 경합할 수 있음을 확인했다.
 - Green: stdout/stderr를 `ReadLineAsync`로 수집하고 제한시간 내 상태를 probe해 자산 5대,
-  트랙 2개, 각 명령 성공, 새 session, pending 0, ESTOP 결과를 조건으로 기다린다.
+  트랙 2개, 각 명령 성공, 새 session, pending 0, ESTOP 결과와 모든 타격 자산의
+  STANDBY 상태를 조건으로 기다린다.
 - Refactor: 외부 output callback을 제거해 PowerShell runspace 종속성을 없애고 공통
   `Wait-OutputPattern`/`Wait-SentCount`로 실패 메시지와 timeout을 일원화했다.
 - 검증: 동일 Release 바이너리로 smoke 3회 연속 통과.
