@@ -211,3 +211,14 @@
 - Refactor: `--asset-id`가 없는 기존 실행은 명시적 legacy migration 모드로 유지한다.
 - 검증: Release 전체 빌드 성공, 전체 시험 180/180 및 관측 2/타격 3 실제 프로세스
   UDP smoke test 통과.
+
+## Cycle 19 — POINT 자동 할당
+
+- Red: 사전 `assign` 없이 `point TRACK_ID`를 호출하면 가장 가까운 건강한 자산을
+  자동 할당하고 그 Endpoint로 지향 명령을 보내는 테스트로 변경해 기존 고정 자산
+  fallback 실패를 확인했다.
+- Green: 유효한 전역 track이지만 할당이 없으면 runtime이 원자적 자동 할당을 먼저
+  수행하고 동일 호출에서 POINT를 전송하도록 했다.
+- Refactor: legacy detection ID는 TrackStore에 없으므로 기존 단일 자산 지향 경로로
+  계속 분기된다. 다중 프로세스 smoke에서 명시적 assign을 제거해 자동 경로를 검증했다.
+- 검증: Release 전체 빌드, 전체 시험 180/180, 다중 프로세스 smoke 통과.

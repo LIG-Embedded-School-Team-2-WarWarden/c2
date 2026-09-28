@@ -116,7 +116,6 @@ try {
         @{ Command = 'scan 101 10 5'; Delay = 80 },
         @{ Command = 'obs-stop 101'; Delay = 80 },
         @{ Command = 'obs-home 101'; Delay = 80 },
-        @{ Command = 'assign 1'; Delay = 80 },
         @{ Command = 'point 1'; Delay = 80 },
         @{ Command = 'arm 1'; Delay = 80 },
         @{ Command = 'start 1 100'; Delay = 150 }
