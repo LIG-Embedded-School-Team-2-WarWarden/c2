@@ -62,6 +62,7 @@ $processes = @()
 
 try {
     $server = Start-RedirectedProcess $serverPath @(
+        '--asset-port', '15000',
         '--observation-status-port', '15001',
         '--target-port', '15002',
         '--observation-command-port', '15101',
@@ -75,29 +76,47 @@ try {
         '--command-attempts', '4',
         '--emergency-stop-repetitions', '4'
     )
-    $observation = Start-RedirectedProcess $observationPath @(
-        '--listen-port', '15101',
-        '--status-port', '15001',
-        '--target-port', '15002',
+    $observation1 = Start-RedirectedProcess $observationPath @(
+        '--asset-id', '101', '--listen-port', '0', '--c2-port', '15000',
         '--status-interval-ms', '80',
-        '--heartbeat-interval-ms', '700',
-        '--target-interval-ms', '700',
+        '--heartbeat-interval-ms', '300', '--registration-interval-ms', '500',
+        '--target-interval-ms', '300',
         '--watchdog-timeout-ms', '4000'
     )
-    $effector = Start-RedirectedProcess $effectorPath @(
-        '--listen-port', '16001',
-        '--status-port', '16002',
+    $observation2 = Start-RedirectedProcess $observationPath @(
+        '--asset-id', '102', '--listen-port', '0', '--c2-port', '15000',
         '--status-interval-ms', '80',
-        '--heartbeat-interval-ms', '700',
+        '--heartbeat-interval-ms', '300', '--registration-interval-ms', '500',
+        '--target-interval-ms', '300', '--y', '20',
         '--watchdog-timeout-ms', '4000'
     )
-    $processes = @($server, $observation, $effector)
+    $effector1 = Start-RedirectedProcess $effectorPath @(
+        '--asset-id', '201', '--listen-port', '0', '--c2-port', '15000',
+        '--status-interval-ms', '80',
+        '--heartbeat-interval-ms', '300', '--registration-interval-ms', '500',
+        '--watchdog-timeout-ms', '4000'
+    )
+    $effector2 = Start-RedirectedProcess $effectorPath @(
+        '--asset-id', '202', '--listen-port', '0', '--c2-port', '15000',
+        '--status-interval-ms', '80',
+        '--heartbeat-interval-ms', '300', '--registration-interval-ms', '500',
+        '--watchdog-timeout-ms', '4000', '--x', '50'
+    )
+    $effector3 = Start-RedirectedProcess $effectorPath @(
+        '--asset-id', '203', '--listen-port', '0', '--c2-port', '15000',
+        '--status-interval-ms', '80',
+        '--heartbeat-interval-ms', '300', '--registration-interval-ms', '500',
+        '--watchdog-timeout-ms', '4000', '--x', '90'
+    )
+    $assets = @($observation1, $observation2, $effector1, $effector2, $effector3)
+    $processes = @($server) + $assets
 
     Start-Sleep -Seconds 2
     foreach ($entry in @(
-        @{ Command = 'scan 10 5'; Delay = 80 },
-        @{ Command = 'obs-stop'; Delay = 80 },
-        @{ Command = 'obs-home'; Delay = 80 },
+        @{ Command = 'scan 101 10 5'; Delay = 80 },
+        @{ Command = 'obs-stop 101'; Delay = 80 },
+        @{ Command = 'obs-home 101'; Delay = 80 },
+        @{ Command = 'assign 1'; Delay = 80 },
         @{ Command = 'point 1'; Delay = 80 },
         @{ Command = 'arm 1'; Delay = 80 },
         @{ Command = 'start 1 100'; Delay = 150 }
@@ -106,9 +125,9 @@ try {
         Start-Sleep -Milliseconds $entry.Delay
     }
     $server.StandardInput.WriteLine('status')
+    $server.StandardInput.WriteLine('estop-all')
     $server.StandardInput.WriteLine('quit')
-    $observation.StandardInput.WriteLine('quit')
-    $effector.StandardInput.WriteLine('quit')
+    foreach ($asset in $assets) { $asset.StandardInput.WriteLine('quit') }
 
     foreach ($process in $processes) {
         if (-not $process.WaitForExit(5000)) {
@@ -122,8 +141,9 @@ try {
     if ($sentCount -ne 6) {
         throw "Expected six successful commands but observed ${sentCount}.`n${serverOutput}`n${allErrors}"
     }
-    if ($serverOutput -notmatch 'observation=CONNECTED effector=CONNECTED pending_commands=0') {
-        throw "Assets did not finish connected with no pending command.`n${serverOutput}`n${allErrors}"
+    if ($serverOutput -notmatch 'assets=5 tracks=2 pending_commands=0' -or
+        $serverOutput -notmatch 'estop assets=3 datagrams=12') {
+        throw "Dynamic assets or emergency stop summary was incorrect.`n${serverOutput}`n${allErrors}"
     }
     foreach ($process in $processes) {
         if ($process.ExitCode -ne 0) {
@@ -133,7 +153,7 @@ try {
     Assert-InvalidConfiguration $serverPath @('--heartbeat-interval-ms', '0') 'invalid heartbeat interval'
     Assert-InvalidConfiguration $observationPath @('--target-interval-ms', '0') 'invalid target interval'
     Assert-InvalidConfiguration $effectorPath @('--status-interval-ms', '0') 'invalid status interval'
-    Write-Host 'UDP process smoke test passed: runtime ports and timing, six commands, connected assets, no pending ACK, invalid options rejected.'
+    Write-Host 'UDP process smoke test passed: 2 observations, 3 effectors, 2 tracks, automatic assignment, attack flow, estop-all.'
 } finally {
     foreach ($process in $processes) {
         if ($null -ne $process -and -not $process.HasExited) {
