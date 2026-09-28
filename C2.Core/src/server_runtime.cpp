@@ -493,6 +493,25 @@ std::size_t ServerRuntime::pending_command_count() const {
 void ServerRuntime::send_heartbeats(
     const std::uint64_t now_us, const std::uint64_t uptime_ms) {
     std::lock_guard lock(heartbeat_mutex_);
+    const auto registered = registry_.assets(now_us);
+    if (!registered.empty()) {
+        for (const auto& asset : registered) {
+            auto& sequence = asset.role == AssetRole::observation
+                ? next_observation_heartbeat_sequence_
+                : next_effector_heartbeat_sequence_;
+            Heartbeat heartbeat{
+                {protocol_version, sequence, now_us,
+                 ComponentId::command_and_control,
+                 asset.role == AssetRole::observation
+                     ? ComponentId::observation_asset
+                     : ComponentId::effector_asset,
+                 asset.asset_id, asset.session_id},
+                AssetOperatingState::operating, uptime_ms, now_us};
+            dispatch(heartbeat, asset.command_endpoint);
+            sequence = next_non_zero(sequence);
+        }
+        return;
+    }
     Heartbeat observation{
         {protocol_version, next_observation_heartbeat_sequence_, now_us,
          ComponentId::command_and_control, ComponentId::observation_asset},

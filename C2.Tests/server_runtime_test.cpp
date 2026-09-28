@@ -464,6 +464,36 @@ TEST(ServerRuntimeRegistrationTest, NewSessionEndsPreviousSessionPendingCommands
     EXPECT_EQ(server.pending_command_count(), 0U);
 }
 
+TEST(ServerRuntimeRegistrationTest, SendsHeartbeatToEveryRegisteredAssetEndpoint) {
+    struct Sent { std::vector<std::byte> data; c2::Endpoint endpoint; };
+    std::vector<Sent> sent;
+    c2::ServerRuntime server(config(), [&](auto data, const auto& endpoint) {
+        sent.push_back({{data.begin(), data.end()}, endpoint});
+    });
+    const auto observation = registration(
+        101, 7, c2::AssetRole::observation, 51'101);
+    const auto effector = registration(
+        201, 9, c2::AssetRole::effector, 60'201);
+    ASSERT_EQ(server.ingest(bytes(observation), {"10.0.0.1", 40'001}, 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(effector), {"10.0.0.2", 40'002}, 100),
+              c2::InboundResult::accepted);
+
+    server.send_heartbeats(101, 5);
+
+    ASSERT_EQ(sent.size(), 2U);
+    EXPECT_EQ(sent[0].endpoint.port, 51'101);
+    EXPECT_EQ(sent[1].endpoint.port, 60'201);
+    for (std::size_t index = 0; index < sent.size(); ++index) {
+        const auto decoded = c2::protobuf::decode(sent[index].data);
+        ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+        const auto& message = std::get<c2::Heartbeat>(
+            std::get<c2::Envelope>(decoded).payload);
+        EXPECT_EQ(message.header.asset_id, index == 0 ? 101U : 201U);
+        EXPECT_EQ(message.header.session_id, index == 0 ? 7U : 9U);
+    }
+}
+
 TEST(ServerRuntimeAssignmentTest, AssignsNearestEffectorAndReassignsAfterHeartbeatTimeout) {
     struct Sent { std::vector<std::byte> data; c2::Endpoint endpoint; };
     std::vector<Sent> sent;

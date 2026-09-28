@@ -3,11 +3,15 @@
 #include "c2/dummy_assets.hpp"
 #include "c2/protobuf_codec.hpp"
 #include "c2/server_runtime.hpp"
+#include "c2/server_udp_ingress.hpp"
+#include "c2/udp_transport.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <variant>
 #include <vector>
+#include <thread>
 
 namespace {
 std::vector<std::byte> encode(c2::MessagePayload payload) {
@@ -78,5 +82,41 @@ TEST(SystemIntegrationTest, RunsObservationToPointingAndAttackFlow) {
     ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(start));
     EXPECT_TRUE(effector.status(141).attack_active);
     EXPECT_FALSE(effector.status(100'140).attack_active);
+}
+
+TEST(SystemIntegrationTest, RegistersAssetThroughUdpUsingActualSourceEndpoint) {
+    c2::ServerRuntimeConfig config{
+        {10'000, 8}, {1'000},
+        {{-180, 180, -90, 90}, 500, 1, 1},
+        {{-180, 180, -90, 90}, 500, 1, 1},
+        {500, 1, 1}, {"127.0.0.1", 5101}, {"127.0.0.1", 6001}};
+    config.registry = {8, 1'000, 10'000, 1'000};
+    c2::ServerRuntime server(config, [](auto, auto) {});
+    c2::ServerUdpIngress ingress(
+        server, {"127.0.0.1", 0}, [] { return std::uint64_t{100}; });
+    c2::UdpTransport asset({"127.0.0.1", 0}, [](auto, auto) {});
+    ingress.start();
+    asset.start();
+    const auto asset_source = asset.local_endpoint();
+    c2::AssetRegistration registration{
+        {c2::protocol_version, 1, 10, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 7},
+        c2::AssetRole::observation, 51'101,
+        c2::capability::observation_scan, "udp-test/2.0", {},
+        {-180, 180, -90, 90}, false, 5'000};
+    asset.send(encode(registration), ingress.local_endpoint());
+
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(1);
+    while (server.assets(100).empty() &&
+           std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    const auto assets = server.assets(100);
+    ASSERT_EQ(assets.size(), 1U);
+    EXPECT_EQ(assets.front().source_endpoint.address, "127.0.0.1");
+    EXPECT_EQ(assets.front().source_endpoint.port, asset_source.port);
+    EXPECT_EQ(assets.front().command_endpoint.port, 51'101);
+    asset.stop();
+    ingress.stop();
 }
 }  // namespace

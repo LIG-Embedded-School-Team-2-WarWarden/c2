@@ -165,3 +165,28 @@
 - Refactor: STOP과 ESTOP의 헤더 생성, 세션 지정, 반복 송신을 공통 안전 명령 경로로
   통합했다. STOP은 ACK 추적하고 ESTOP은 동일 datagram을 설정 횟수만큼 즉시 보낸다.
 - 검증: Release 전체 빌드 성공, 전체 시험 172/172 통과.
+
+## Cycle 15 — 다중 자산 콘솔 문법
+
+- Red: 자산·표적 조회, 자산 ID 기반 관측 명령, 자동/수동 할당, 해제, POINT,
+  ARM/START, 자산별 STOP/ESTOP, ESTOP-ALL 문법과 잘못된 인수 거부 테스트를 먼저
+  추가하고 parser 헤더 부재로 빌드 실패를 확인했다.
+- Green: 입력 문자열을 네트워크와 무관한 typed `ConsoleCommand`로 변환하는 parser를
+  구현하고 서버 콘솔을 동적 runtime API에 연결했다.
+- Refactor: 64비트 ID, 유한 각도, 양수 duration, 잉여 인수를 parser 경계에서
+  일관되게 검증한다. `assets`, `targets`, `status`, `errors` 출력에 자산·세션과 전역
+  track 원본 정보를 포함했다.
+
+## Cycle 16 — 실제 송신 Endpoint 기반 UDP ingress와 Heartbeat
+
+- Red: loopback UDP 등록 패킷의 실제 source IP/port가 registry에 저장되는 통합 테스트와
+  등록 자산별 command Endpoint·session으로 C2 Heartbeat가 전송되는 테스트를 먼저
+  추가했다. ingress 타입 부재 및 고정 Endpoint Heartbeat로 실패를 확인했다.
+- Green: 예외 격리된 `ServerUdpIngress`를 추가하고 서버에 공용 자산 수신 포트를
+  연결했다. 등록 자산이 있으면 각 자산 snapshot으로 Heartbeat를 라우팅한다.
+- Refactor: 수신 시각은 주입 가능한 clock으로 얻고 실제 UDP source를 secure runtime
+  ingest에 그대로 전달한다. 등록 자산이 없는 동안은 기존 고정 Endpoint heartbeat를
+  호환 경계로 유지한다. 역할별 기존 UDP 포트와 단일 자산 콘솔 문법도 더미 자산
+  전환이 완료될 때까지 명시적 migration 경계로 분리했다.
+- 검증: Release 전체 빌드 성공, loopback 통합시험과 기존 프로세스 smoke test 포함
+  전체 179/179 통과.

@@ -1,4 +1,6 @@
 #include "c2/server_runtime.hpp"
+#include "c2/server_console.hpp"
+#include "c2/server_udp_ingress.hpp"
 
 #include <atomic>
 #include <charconv>
@@ -23,6 +25,7 @@ struct Options {
     std::uint16_t observation_command_port{5101};
     std::uint16_t effector_command_port{6001};
     std::uint16_t effector_status_port{6002};
+    std::uint16_t asset_port{5000};
     std::uint64_t target_validity_ms{2'000};
     std::size_t maximum_targets{256};
     std::uint64_t heartbeat_interval_ms{1'000};
@@ -84,6 +87,7 @@ Options parse_options(const int argc, char* argv[]) {
         else if (name == "--observation-command-port") options.observation_command_port = port(value);
         else if (name == "--effector-command-port") options.effector_command_port = port(value);
         else if (name == "--effector-status-port") options.effector_status_port = port(value);
+        else if (name == "--asset-port") options.asset_port = port(value);
         else if (name == "--target-validity-ms") options.target_validity_ms = positive_number<std::uint64_t>(value, "target validity");
         else if (name == "--max-targets") options.maximum_targets = positive_number<std::size_t>(value, "maximum target count");
         else if (name == "--heartbeat-interval-ms") options.heartbeat_interval_ms = interval_ms(value, "heartbeat interval");
@@ -136,11 +140,14 @@ int main(int argc, char* argv[]) {
         const auto receive = [&](std::vector<std::byte> data, c2::Endpoint) {
             (void)runtime.ingest(data, now_us());
         };
+        c2::ServerUdpIngress asset_ingress(
+            runtime, {options.bind_address, options.asset_port}, now_us);
         c2::UdpTransport observation_status(
             {options.bind_address, options.observation_status_port}, receive);
         c2::UdpTransport targets({options.bind_address, options.target_port}, receive);
         c2::UdpTransport effector_status(
             {options.bind_address, options.effector_status_port}, receive);
+        asset_ingress.start();
         observation_status.start();
         targets.start();
         effector_status.start();
@@ -167,92 +174,167 @@ int main(int argc, char* argv[]) {
             }
         });
 
-        std::cout << "C2 server started. Commands: scan P T, observe P T, obs-stop, "
-                     "obs-home, targets, status, errors, point ID, arm ID, "
-                     "start ID MS, stop, estop, quit\n";
+        std::cout << "C2 server started. Commands: assets, targets, "
+                     "scan OBS_ID P T, observe OBS_ID P T, obs-stop OBS_ID, "
+                     "obs-home OBS_ID, assign TRACK_ID [EFFECTOR_ID], unassign TRACK_ID, "
+                     "point TRACK_ID, arm TRACK_ID, start TRACK_ID MS, "
+                     "stop EFFECTOR_ID, estop EFFECTOR_ID, estop-all, status, errors, quit\n";
         std::string line;
         while (std::cout << "> " && std::getline(std::cin, line)) {
-            std::istringstream input(line);
-            std::string command;
-            input >> command;
-            if (command == "quit") break;
-            if (command == "scan") {
-                float pan{}, tilt{};
-                if (input >> pan >> tilt)
-                    print_dispatch(runtime.command_observation(
-                        c2::ObservationTurretCommandType::scan, pan, tilt, now_us()));
-            } else if (command == "observe") {
-                float pan{}, tilt{};
-                if (input >> pan >> tilt)
-                    print_dispatch(runtime.command_observation(
-                        c2::ObservationTurretCommandType::absolute_angle,
-                        pan, tilt, now_us()));
-            } else if (command == "obs-stop") {
-                print_dispatch(runtime.command_observation(
-                    c2::ObservationTurretCommandType::stop, 0, 0, now_us()));
-            } else if (command == "obs-home") {
-                print_dispatch(runtime.command_observation(
-                    c2::ObservationTurretCommandType::home, 0, 0, now_us()));
-            } else if (command == "targets") {
-                const auto targets = runtime.targets(now_us());
-                if (targets.empty()) std::cout << "no current targets\n";
-                for (const auto& target : targets)
-                    std::cout << "id=" << target.detection_id
-                              << " xyz=(" << target.x_m << ',' << target.y_m << ','
-                              << target.z_m << ") confidence=" << target.confidence << '\n';
-            } else if (command == "status") {
-                const auto now = now_us();
-                std::cout << "observation=" << connection_name(runtime.connection_state(
-                                 c2::ComponentId::observation_asset, now))
-                          << " effector=" << connection_name(runtime.connection_state(
-                                 c2::ComponentId::effector_asset, now))
-                          << " pending_commands=" << runtime.pending_command_count() << '\n';
-                if (const auto status = runtime.observation_status())
-                    std::cout << "observation pan=" << status->current_pan_deg
-                              << " tilt=" << status->current_tilt_deg
-                              << " scanning=" << (c2::is_scanning(*status) ? "yes" : "no")
-                              << " error=" << status->error_code << '\n';
-                if (const auto status = runtime.effector_status())
-                    std::cout << "effector pan=" << status->current_pan_deg
-                              << " tilt=" << status->current_tilt_deg
-                              << " aligned=" << (status->aligned ? "yes" : "no")
-                              << " armed=" << (status->attack_armed ? "yes" : "no")
-                              << " active=" << (status->attack_active ? "yes" : "no")
-                              << " error=" << status->error_code << '\n';
-            } else if (command == "errors") {
-                const auto errors = runtime.errors();
-                if (errors.empty()) std::cout << "no errors\n";
-                for (const auto& error : errors)
-                    std::cout << "source=" << static_cast<std::uint32_t>(error.header.source_id)
-                              << " code=" << error.error_code
-                              << " command=" << error.related_command_id
-                              << " detail=" << error.detail << '\n';
-            } else if (command == "point") {
-                std::uint32_t target{};
-                if (input >> target) print_dispatch(runtime.point_effector(target, now_us()));
-            } else if (command == "arm") {
-                std::uint32_t target{};
-                if (input >> target)
-                    print_dispatch(runtime.attack(c2::AttackAction::arm, target, 0, now_us()));
-            } else if (command == "start") {
-                std::uint32_t target{}, duration{};
-                if (input >> target >> duration)
-                    print_dispatch(runtime.attack(
-                        c2::AttackAction::start, target, duration, now_us()));
-            } else if (command == "stop") {
-                print_dispatch(runtime.attack(c2::AttackAction::stop, 0, 0, now_us()));
-            } else if (command == "estop") {
-                print_dispatch(runtime.attack(
-                    c2::AttackAction::emergency_stop, 0, 0, now_us()));
-            } else {
+            const auto parsed = c2::parse_console_command(line);
+            if (!std::holds_alternative<c2::ConsoleCommand>(parsed)) {
                 std::cout << "invalid command\n";
+                continue;
+            }
+            const auto& command = std::get<c2::ConsoleCommand>(parsed);
+            const auto now = now_us();
+            switch (command.kind) {
+                case c2::ConsoleCommandKind::quit:
+                    heartbeat_worker.request_stop();
+                    goto shutdown;
+                case c2::ConsoleCommandKind::assets: {
+                    const auto assets = runtime.assets(now);
+                    if (assets.empty()) std::cout << "no registered assets\n";
+                    for (const auto& asset : assets)
+                        std::cout << "asset=" << asset.asset_id
+                                  << " role=" << static_cast<std::uint32_t>(asset.role)
+                                  << " session=" << asset.session_id
+                                  << " endpoint=" << asset.command_endpoint.address << ':'
+                                  << asset.command_endpoint.port
+                                  << " connection=" << static_cast<std::uint32_t>(
+                                         asset.connection_state)
+                                  << " lease_us=" << asset.lease_expires_at_us
+                                  << " pose=" << (asset.pose_synchronized ? "yes" : "no")
+                                  << " capabilities=" << asset.capabilities << '\n';
+                    break;
+                }
+                case c2::ConsoleCommandKind::targets: {
+                    const auto tracks = runtime.tracks(now);
+                    if (tracks.empty()) std::cout << "no current targets\n";
+                    for (const auto& track : tracks)
+                        std::cout << "track=" << track.track_id
+                                  << " observer=" << track.observation_asset_id
+                                  << " detection=" << track.detection_id
+                                  << " xyz=(" << track.measurement.x_m << ','
+                                  << track.measurement.y_m << ','
+                                  << track.measurement.z_m << ") confidence="
+                                  << track.measurement.confidence
+                                  << " measured_us=" << track.measurement.measurement_time_us
+                                  << " expires_us=" << track.expires_at_us << '\n';
+                    break;
+                }
+                case c2::ConsoleCommandKind::scan:
+                case c2::ConsoleCommandKind::observe:
+                    if (command.asset_id == 0)
+                        print_dispatch(runtime.command_observation(
+                            command.kind == c2::ConsoleCommandKind::scan
+                                ? c2::ObservationTurretCommandType::scan
+                                : c2::ObservationTurretCommandType::absolute_angle,
+                            command.pan_deg, command.tilt_deg, now));
+                    else
+                        print_dispatch(runtime.command_observation(
+                            command.asset_id,
+                            command.kind == c2::ConsoleCommandKind::scan
+                                ? c2::ObservationTurretCommandType::scan
+                                : c2::ObservationTurretCommandType::absolute_angle,
+                            command.pan_deg, command.tilt_deg, now));
+                    break;
+                case c2::ConsoleCommandKind::observation_stop:
+                case c2::ConsoleCommandKind::observation_home:
+                    if (command.asset_id == 0)
+                        print_dispatch(runtime.command_observation(
+                            command.kind == c2::ConsoleCommandKind::observation_stop
+                                ? c2::ObservationTurretCommandType::stop
+                                : c2::ObservationTurretCommandType::home,
+                            0, 0, now));
+                    else
+                        print_dispatch(runtime.command_observation(
+                            command.asset_id,
+                            command.kind == c2::ConsoleCommandKind::observation_stop
+                                ? c2::ObservationTurretCommandType::stop
+                                : c2::ObservationTurretCommandType::home,
+                            0, 0, now));
+                    break;
+                case c2::ConsoleCommandKind::assign: {
+                    const auto decision = command.effector_asset_id
+                        ? runtime.assign(command.track_id, *command.effector_asset_id, now)
+                        : runtime.assign(command.track_id, now);
+                    std::cout << "assignment="
+                              << static_cast<std::uint32_t>(decision.result);
+                    if (decision.assignment)
+                        std::cout << " effector="
+                                  << decision.assignment->effector_asset_id
+                                  << " session="
+                                  << decision.assignment->effector_session_id;
+                    std::cout << '\n';
+                    break;
+                }
+                case c2::ConsoleCommandKind::unassign:
+                    std::cout << "unassign=" << static_cast<std::uint32_t>(
+                        runtime.unassign(command.track_id)) << '\n';
+                    break;
+                case c2::ConsoleCommandKind::point:
+                    print_dispatch(runtime.point_effector(command.track_id, now));
+                    break;
+                case c2::ConsoleCommandKind::arm:
+                    print_dispatch(runtime.attack(
+                        c2::AttackAction::arm, command.track_id, 0, now));
+                    break;
+                case c2::ConsoleCommandKind::start:
+                    print_dispatch(runtime.attack(
+                        c2::AttackAction::start, command.track_id,
+                        command.duration_ms, now));
+                    break;
+                case c2::ConsoleCommandKind::stop:
+                    print_dispatch(command.asset_id == 0
+                        ? runtime.attack(c2::AttackAction::stop, 0, 0, now)
+                        : runtime.stop_effector(command.asset_id, now));
+                    break;
+                case c2::ConsoleCommandKind::emergency_stop:
+                    print_dispatch(command.asset_id == 0
+                        ? runtime.attack(c2::AttackAction::emergency_stop, 0, 0, now)
+                        : runtime.emergency_stop_effector(command.asset_id, now));
+                    break;
+                case c2::ConsoleCommandKind::emergency_stop_all: {
+                    const auto result = runtime.emergency_stop_all(now);
+                    std::cout << "estop assets=" << result.assets
+                              << " datagrams=" << result.datagrams << '\n';
+                    break;
+                }
+                case c2::ConsoleCommandKind::status:
+                    std::cout << "observation=" << connection_name(
+                                     runtime.connection_state(
+                                         c2::ComponentId::observation_asset, now))
+                              << " effector=" << connection_name(
+                                     runtime.connection_state(
+                                         c2::ComponentId::effector_asset, now))
+                              << " pending_commands="
+                              << runtime.pending_command_count() << '\n';
+                    std::cout << "assets=" << runtime.assets(now).size()
+                              << " tracks=" << runtime.tracks(now).size()
+                              << " pending_commands="
+                              << runtime.pending_command_count() << '\n';
+                    break;
+                case c2::ConsoleCommandKind::errors: {
+                    const auto errors = runtime.errors();
+                    if (errors.empty()) std::cout << "no errors\n";
+                    for (const auto& error : errors)
+                        std::cout << "asset=" << error.header.asset_id
+                                  << " session=" << error.header.session_id
+                                  << " code=" << error.error_code
+                                  << " command=" << error.related_command_id
+                                  << " detail=" << error.detail << '\n';
+                    break;
+                }
             }
         }
+shutdown:
         heartbeat_worker.request_stop();
         heartbeat_worker.join();
         effector_status.stop();
         targets.stop();
         observation_status.stop();
+        asset_ingress.stop();
         sender.stop();
         return 0;
     } catch (const std::exception& error) {
