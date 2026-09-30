@@ -22,6 +22,7 @@ struct ObservationTurretLimits {
     const MessageHeader& header, ComponentId expected_source, ComponentId expected_destination);
 [[nodiscard]] ValidationResult validate(const AssetPose& pose);
 [[nodiscard]] ValidationResult validate(const TargetCoordinate& target);
+[[nodiscard]] ValidationResult validate(const TargetTrackUpdate& target);
 [[nodiscard]] ValidationResult validate(const ObservationStatus& status);
 [[nodiscard]] ValidationResult validate(const ObservationTurretCommand& command);
 [[nodiscard]] ValidationResult validate(

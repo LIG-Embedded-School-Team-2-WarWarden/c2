@@ -177,6 +177,53 @@ ValidationResult validate(const TargetCoordinate& target) {
         result.errors.emplace_back("TargetCoordinate position must be finite");
     if (!finite(target.confidence) || target.confidence < 0.0F || target.confidence > 1.0F)
         result.errors.emplace_back("confidence must be in [0, 1]");
+    if (!finite(target.vx_mps) || !finite(target.vy_mps) || !finite(target.vz_mps))
+        result.errors.emplace_back("TargetCoordinate velocity must be finite");
+    return result;
+}
+
+bool supported(const TrackingStopReason reason) noexcept {
+    switch (reason) {
+        case TrackingStopReason::none:
+        case TrackingStopReason::operator_stop:
+        case TrackingStopReason::emergency_stop:
+        case TrackingStopReason::target_expired:
+        case TrackingStopReason::prediction_timeout:
+        case TrackingStopReason::outside_turret_limits:
+        case TrackingStopReason::pose_unavailable:
+        case TrackingStopReason::invalid_target:
+        case TrackingStopReason::track_mismatch:
+        case TrackingStopReason::target_lost:
+        case TrackingStopReason::actuator_fault:
+        case TrackingStopReason::communication_timeout:
+        case TrackingStopReason::following_error:
+        case TrackingStopReason::session_replaced:
+            return true;
+        default:
+            return false;
+    }
+}
+
+ValidationResult validate(const TargetTrackUpdate& target) {
+    ValidationResult result = validate_header(
+        target.header, ComponentId::command_and_control, ComponentId::effector_asset);
+    if (target.track_id == 0) result.errors.emplace_back("track_id must be non-zero");
+    if (target.coordinate_frame != CoordinateFrame::project_frame)
+        result.errors.emplace_back("TargetTrackUpdate must use PROJECT_FRAME");
+    if (!finite(target.x_m) || !finite(target.y_m) || !finite(target.z_m))
+        result.errors.emplace_back("TargetTrackUpdate position must be finite");
+    if (!target.velocity_valid)
+        result.errors.emplace_back("TargetTrackUpdate requires valid velocity");
+    if (!finite(target.vx_mps) || !finite(target.vy_mps) || !finite(target.vz_mps))
+        result.errors.emplace_back("TargetTrackUpdate velocity must be finite");
+    if (target.measurement_time_us == 0)
+        result.errors.emplace_back("measurement_time_us must be non-zero");
+    if (target.valid_until_us <= target.measurement_time_us)
+        result.errors.emplace_back("valid_until_us must follow measurement_time_us");
+    if (!finite(target.confidence) || target.confidence < 0.0F || target.confidence > 1.0F)
+        result.errors.emplace_back("confidence must be in [0, 1]");
+    if (target.observation_asset_id == 0 || target.observation_session_id == 0)
+        result.errors.emplace_back("observation identity must be non-zero");
     return result;
 }
 
@@ -258,8 +305,12 @@ ValidationResult validate(const EffectorStatus& status) {
     ValidationResult result = validate_header(
         status.header, ComponentId::effector_asset, ComponentId::command_and_control);
     if (!supported(status.state)) result.errors.emplace_back("unsupported effector state");
+    if (!supported(status.tracking_stop_reason))
+        result.errors.emplace_back("unsupported tracking stop reason");
     if (!finite(status.current_pan_deg) || !finite(status.current_tilt_deg) ||
-        !finite(status.target_pan_deg) || !finite(status.target_tilt_deg))
+        !finite(status.target_pan_deg) || !finite(status.target_tilt_deg) ||
+        !finite(status.predicted_x_m) || !finite(status.predicted_y_m) ||
+        !finite(status.predicted_z_m))
         result.errors.emplace_back("effector angles must be finite");
     if (status.timestamp_us == 0)
         result.errors.emplace_back("status timestamp_us must be non-zero");
