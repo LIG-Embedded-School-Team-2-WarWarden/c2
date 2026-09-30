@@ -252,6 +252,30 @@ std::vector<std::byte> encode_message(const TargetCoordinate& message) {
     put_float(output, 6, message.y_m);
     put_float(output, 7, message.z_m);
     put_float(output, 8, message.confidence);
+    put_float(output, 9, message.vx_mps);
+    put_float(output, 10, message.vy_mps);
+    put_float(output, 11, message.vz_mps);
+    put_bool(output, 12, message.velocity_valid);
+    return output;
+}
+
+std::vector<std::byte> encode_message(const TargetTrackUpdate& message) {
+    std::vector<std::byte> output;
+    put_header(output, message);
+    put_uint(output, 2, message.track_id);
+    put_enum(output, 3, message.coordinate_frame);
+    put_float(output, 4, message.x_m);
+    put_float(output, 5, message.y_m);
+    put_float(output, 6, message.z_m);
+    put_float(output, 7, message.vx_mps);
+    put_float(output, 8, message.vy_mps);
+    put_float(output, 9, message.vz_mps);
+    put_bool(output, 10, message.velocity_valid);
+    put_uint(output, 11, message.measurement_time_us);
+    put_uint(output, 12, message.valid_until_us);
+    put_float(output, 13, message.confidence);
+    put_uint(output, 14, message.observation_asset_id);
+    put_uint(output, 15, message.observation_session_id);
     return output;
 }
 
@@ -314,6 +338,14 @@ std::vector<std::byte> encode_message(const EffectorStatus& message) {
     put_bool(output, 9, message.attack_active);
     put_uint(output, 10, message.error_code);
     put_uint(output, 11, message.timestamp_us);
+    put_uint(output, 12, message.tracking_track_id);
+    put_bool(output, 13, message.automatic_tracking_active);
+    put_uint(output, 14, message.last_target_measurement_time_us);
+    put_uint(output, 15, message.target_freshness_us);
+    put_enum(output, 16, message.tracking_stop_reason);
+    put_float(output, 17, message.predicted_x_m);
+    put_float(output, 18, message.predicted_y_m);
+    put_float(output, 19, message.predicted_z_m);
     return output;
 }
 
@@ -484,6 +516,16 @@ bool decode_message(const std::span<const std::byte> bytes, TargetCoordinate& me
                 return read_float(reader, type, value.z_m);
             case 8:
                 return read_float(reader, type, value.confidence);
+            case 9:
+                return read_float(reader, type, value.vx_mps);
+            case 10:
+                return read_float(reader, type, value.vy_mps);
+            case 11:
+                return read_float(reader, type, value.vz_mps);
+            case 12:
+                if (!read_uint(reader, type, integer)) return false;
+                value.velocity_valid = integer != 0;
+                return true;
             default:
                 return false;
         }
@@ -640,6 +682,23 @@ bool decode_message(const std::span<const std::byte> bytes, EffectorStatus& mess
                 return true;
             case 11:
                 return read_uint(reader, type, value.timestamp_us);
+            case 12:
+                return read_uint(reader, type, value.tracking_track_id);
+            case 13:
+                if (!read_uint(reader, type, integer)) return false;
+                value.automatic_tracking_active = integer != 0;
+                return true;
+            case 14:
+                return read_uint(reader, type, value.last_target_measurement_time_us);
+            case 15:
+                return read_uint(reader, type, value.target_freshness_us);
+            case 16:
+                if (!read_uint(reader, type, integer)) return false;
+                value.tracking_stop_reason = static_cast<TrackingStopReason>(integer);
+                return true;
+            case 17: return read_float(reader, type, value.predicted_x_m);
+            case 18: return read_float(reader, type, value.predicted_y_m);
+            case 19: return read_float(reader, type, value.predicted_z_m);
             default:
                 return false;
         }
@@ -763,6 +822,37 @@ bool decode_message(const std::span<const std::byte> bytes, AssetUnregister& mes
     });
 }
 
+bool decode_message(const std::span<const std::byte> bytes, TargetTrackUpdate& message) {
+    message.coordinate_frame = CoordinateFrame::unspecified;
+    return decode_fields(bytes, message, [](Reader& reader, const std::uint32_t field,
+                                            const std::uint8_t type, TargetTrackUpdate& value) {
+        std::uint64_t integer{};
+        switch (field) {
+            case 2: return read_uint(reader, type, value.track_id);
+            case 3:
+                if (!read_uint(reader, type, integer)) return false;
+                value.coordinate_frame = static_cast<CoordinateFrame>(integer);
+                return true;
+            case 4: return read_float(reader, type, value.x_m);
+            case 5: return read_float(reader, type, value.y_m);
+            case 6: return read_float(reader, type, value.z_m);
+            case 7: return read_float(reader, type, value.vx_mps);
+            case 8: return read_float(reader, type, value.vy_mps);
+            case 9: return read_float(reader, type, value.vz_mps);
+            case 10:
+                if (!read_uint(reader, type, integer)) return false;
+                value.velocity_valid = integer != 0;
+                return true;
+            case 11: return read_uint(reader, type, value.measurement_time_us);
+            case 12: return read_uint(reader, type, value.valid_until_us);
+            case 13: return read_float(reader, type, value.confidence);
+            case 14: return read_uint(reader, type, value.observation_asset_id);
+            case 15: return read_uint(reader, type, value.observation_session_id);
+            default: return false;
+        }
+    });
+}
+
 template <typename Message>
 bool set_payload(const std::span<const std::byte> bytes, Envelope& envelope) {
     Message message;
@@ -800,6 +890,8 @@ bool decode_payload(
             return set_payload<AssetRegistration>(bytes, envelope);
         case MessageKind::asset_unregister:
             return set_payload<AssetUnregister>(bytes, envelope);
+        case MessageKind::target_track_update:
+            return set_payload<TargetTrackUpdate>(bytes, envelope);
         case MessageKind::unspecified:
         default:
             return false;
@@ -831,7 +923,7 @@ DecodeResult decode(const std::span<const std::byte> bytes) {
         std::uint8_t type{};
         if (!reader.key(field, type)) return DecodeError::malformed;
         if (field >= static_cast<std::uint32_t>(MessageKind::asset_pose) &&
-            field <= static_cast<std::uint32_t>(MessageKind::asset_unregister)) {
+            field <= static_cast<std::uint32_t>(MessageKind::target_track_update)) {
             std::span<const std::byte> nested;
             if (type != wire_length_delimited || !reader.message(nested) ||
                 !decode_payload(field, nested, envelope))
