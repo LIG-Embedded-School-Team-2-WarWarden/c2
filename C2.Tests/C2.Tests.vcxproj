@@ -104,6 +104,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="continuous_tracking_test.cpp" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>

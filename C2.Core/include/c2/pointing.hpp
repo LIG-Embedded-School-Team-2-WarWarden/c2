@@ -21,6 +21,17 @@ struct PointingSolution {
     float tilt_deg{};
 };
 
+struct Velocity3 {
+    float x_mps{};
+    float y_mps{};
+    float z_mps{};
+};
+
+// Rotates a sensor-local velocity into PROJECT_FRAME. Velocity is a vector,
+// so installation translation is deliberately not applied.
+[[nodiscard]] Velocity3 rotate_velocity_to_project(
+    Velocity3 local_velocity, float sensor_azimuth_deg);
+
 enum class PointingError {
     invalid_target,
     invalid_effector_pose,

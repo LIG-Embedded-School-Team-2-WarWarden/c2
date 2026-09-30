@@ -135,7 +135,7 @@ int main(int argc, char* argv[]) {
         const c2::Endpoint c2_endpoint{
             options.c2_address, dynamic ? options.c2_port : options.status_port};
         c2::DummyEffectorAsset asset(
-            {{c2::protocol_version, 1, 1, c2::ComponentId::effector_asset,
+            {{c2::protocol_version, 1, now_us(), c2::ComponentId::effector_asset,
               c2::ComponentId::command_and_control,
               dynamic ? options.asset_id : 1U, session},
              c2::CoordinateFrame::project_frame, options.x_m, options.y_m,
@@ -156,6 +156,10 @@ int main(int argc, char* argv[]) {
                 if (result.error_report)
                     send(*transport_ptr, *result.error_report, c2_endpoint);
                 send(*transport_ptr, asset.status(received), c2_endpoint);
+            } else if (const auto* track = std::get_if<c2::TargetTrackUpdate>(&payload)) {
+                (void)asset.handle(*track, received);
+                if (const auto report = asset.control_step(received))
+                    send(*transport_ptr, *report, c2_endpoint);
             } else if (const auto* attack = std::get_if<c2::AttackCommand>(&payload)) {
                 const auto result = asset.handle(*attack, received);
                 send(*transport_ptr, result.acknowledgement, c2_endpoint);
@@ -194,8 +198,20 @@ int main(int argc, char* argv[]) {
                 if (const auto report = asset.check_watchdog(
                         now, options.watchdog_timeout_ms * 1000U))
                     send(transport, *report, c2_endpoint);
+                if (const auto report = asset.control_step(now))
+                    send(transport, *report, c2_endpoint);
                 if (steady_now >= next_status) {
-                    send(transport, asset.status(now), c2_endpoint);
+                    const auto current = asset.status(now);
+                    send(transport, current, c2_endpoint);
+                    std::cout << "track=" << current.tracking_track_id
+                              << " predicted=(" << current.predicted_x_m << ','
+                              << current.predicted_y_m << ',' << current.predicted_z_m
+                              << ") target_pan=" << current.target_pan_deg
+                              << " target_tilt=" << current.target_tilt_deg
+                              << " tracking=" << current.automatic_tracking_active
+                              << " stop_reason="
+                              << static_cast<std::uint32_t>(current.tracking_stop_reason)
+                              << '\n';
                     next_status = steady_now +
                         std::chrono::milliseconds(options.status_interval_ms);
                 }

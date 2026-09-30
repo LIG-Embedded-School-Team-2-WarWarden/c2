@@ -31,6 +31,10 @@ struct Options {
     float y_m{};
     float z_m{1.5F};
     float azimuth_deg{};
+    float vx_mps{};
+    float vy_mps{};
+    float vz_mps{};
+    bool velocity_valid{true};
     c2::ObservationTurretLimits limits{-180, 180, -90, 90};
     std::uint64_t status_interval_ms{100};
     std::uint64_t heartbeat_interval_ms{1'000};
@@ -91,6 +95,14 @@ Options parse_options(const int argc, char* argv[]) {
         else if (name == "--y") options.y_m = finite_float(value, "y");
         else if (name == "--z") options.z_m = finite_float(value, "z");
         else if (name == "--azimuth") options.azimuth_deg = finite_float(value, "azimuth");
+        else if (name == "--vx") options.vx_mps = finite_float(value, "vx");
+        else if (name == "--vy") options.vy_mps = finite_float(value, "vy");
+        else if (name == "--vz") options.vz_mps = finite_float(value, "vz");
+        else if (name == "--velocity-valid") {
+            if (value != "0" && value != "1")
+                throw std::invalid_argument("velocity-valid must be 0 or 1");
+            options.velocity_valid = value == "1";
+        }
         else if (name == "--min-pan") options.limits.minimum_pan_deg = finite_float(value, "minimum pan");
         else if (name == "--max-pan") options.limits.maximum_pan_deg = finite_float(value, "maximum pan");
         else if (name == "--min-tilt") options.limits.minimum_tilt_deg = finite_float(value, "minimum tilt");
@@ -144,7 +156,7 @@ int main(int argc, char* argv[]) {
         const c2::Endpoint target_endpoint{
             options.c2_address, dynamic ? options.c2_port : options.target_port};
         c2::DummyObservationAsset asset(
-            {{c2::protocol_version, 1, 1, c2::ComponentId::observation_asset,
+            {{c2::protocol_version, 1, now_us(), c2::ComponentId::observation_asset,
               c2::ComponentId::command_and_control,
               dynamic ? options.asset_id : 1U, session},
              c2::CoordinateFrame::project_frame, options.x_m, options.y_m,
@@ -211,7 +223,15 @@ int main(int argc, char* argv[]) {
                         std::chrono::milliseconds(options.heartbeat_interval_ms);
                 }
                 if (steady_now >= next_target) {
-                    send(transport, asset.target(1, 100, 20, 10, 0.95F, now), target_endpoint);
+                    const auto elapsed_s = std::chrono::duration<double>(
+                        steady_now - started).count();
+                    send(transport, asset.target(
+                        1,
+                        static_cast<float>(100.0 + options.vx_mps * elapsed_s),
+                        static_cast<float>(20.0 + options.vy_mps * elapsed_s),
+                        static_cast<float>(10.0 + options.vz_mps * elapsed_s),
+                        options.vx_mps, options.vy_mps, options.vz_mps,
+                        options.velocity_valid, 0.95F, now), target_endpoint);
                     next_target = steady_now +
                         std::chrono::milliseconds(options.target_interval_ms);
                 }

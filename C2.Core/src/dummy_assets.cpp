@@ -1,4 +1,5 @@
 #include "c2/dummy_assets.hpp"
+#include "c2/pointing.hpp"
 
 #include <cmath>
 #include <limits>
@@ -156,7 +157,15 @@ TargetCoordinate DummyObservationAsset::target(
     const float confidence, const std::uint64_t now_us) {
     std::lock_guard lock(mutex_);
     return {header(now_us), id, now_us, CoordinateFrame::project_frame,
-            x, y, z, confidence};
+            x, y, z, confidence, 0, 0, 0, false};
+}
+TargetCoordinate DummyObservationAsset::target(
+    const std::uint32_t id, const float x, const float y, const float z,
+    const float vx, const float vy, const float vz, const bool velocity_valid,
+    const float confidence, const std::uint64_t now_us) {
+    std::lock_guard lock(mutex_);
+    return {header(now_us), id, now_us, CoordinateFrame::project_frame,
+            x, y, z, confidence, vx, vy, vz, velocity_valid};
 }
 bool DummyObservationAsset::observe_control_heartbeat(
     const Heartbeat& value, const std::uint64_t received_at_us) {
@@ -286,16 +295,9 @@ ProcessedCommand DummyEffectorAsset::handle(
         error_code = dummy_error::expired_command;
         detail = "expired attack command";
     } else if (command.action == AttackAction::emergency_stop) {
-        status_.attack_active = false;
-        status_.attack_armed = false;
-        status_.aligned = false;
-        status_.state = EffectorState::standby;
-        attack_end_us_ = 0;
+        safe_stop(TrackingStopReason::emergency_stop, 0);
     } else if (command.action == AttackAction::stop) {
-        status_.attack_active = false;
-        status_.attack_armed = false;
-        status_.state = status_.aligned ? EffectorState::ready : EffectorState::standby;
-        attack_end_us_ = 0;
+        safe_stop(TrackingStopReason::operator_stop, 0);
     } else if (status_.state != EffectorState::ready) {
         result = CommandResult::rejected;
         error_code = dummy_error::invalid_state;
@@ -312,6 +314,9 @@ ProcessedCommand DummyEffectorAsset::handle(
         detail = "effector is not armed";
     } else {
         status_.attack_active = true;
+        status_.automatic_tracking_active = true;
+        status_.tracking_track_id = current_target_id_;
+        status_.tracking_stop_reason = TrackingStopReason::none;
         status_.state = EffectorState::active;
         const auto duration_us = static_cast<std::uint64_t>(command.duration_ms) * 1000U;
         attack_end_us_ = now_us > std::numeric_limits<std::uint64_t>::max() - duration_us
@@ -327,12 +332,109 @@ ProcessedCommand DummyEffectorAsset::handle(
     return {response, false, std::move(report)};
 }
 
+bool DummyEffectorAsset::handle(
+    const TargetTrackUpdate& update, const std::uint64_t now_us) {
+    std::lock_guard lock(mutex_);
+    if (!validate(update).valid() || now_us == 0 || now_us >= update.valid_until_us ||
+        update.header.asset_id != asset_id_ || update.header.session_id != session_id_)
+        return false;
+    if (target_update_) {
+        if (update.track_id != target_update_->track_id) return false;
+        if (update.measurement_time_us < target_update_->measurement_time_us ||
+            (update.measurement_time_us == target_update_->measurement_time_us &&
+             update.header.sequence <= target_update_->header.sequence)) {
+            return false;
+        }
+    }
+    target_update_ = update;
+    current_target_id_ = update.track_id;
+    status_.tracking_track_id = update.track_id;
+    status_.last_target_measurement_time_us = update.measurement_time_us;
+    status_.tracking_stop_reason = TrackingStopReason::none;
+    status_.error_code = 0;
+    return true;
+}
+
+std::optional<ErrorReport> DummyEffectorAsset::control_step(
+    const std::uint64_t now_us, const std::uint64_t maximum_prediction_us) {
+    std::lock_guard lock(mutex_);
+    advance(now_us);
+    if (!target_update_) return std::nullopt;
+    const auto& update = *target_update_;
+    if (pose_.header.timestamp_us == 0 || now_us < pose_.header.timestamp_us ||
+        now_us - pose_.header.timestamp_us > 3'000'000) {
+        safe_stop(TrackingStopReason::pose_unavailable,
+                  dummy_error::invalid_target_state);
+        return error(dummy_error::invalid_target_state, ErrorSeverity::critical, 0,
+                     "effector pose is missing or stale", now_us);
+    }
+    if (now_us < update.measurement_time_us) {
+        safe_stop(TrackingStopReason::invalid_target, dummy_error::invalid_target_state);
+        return error(dummy_error::invalid_target_state, ErrorSeverity::critical, 0,
+                     "target measurement timestamp is in the future", now_us);
+    }
+    const auto age = now_us - update.measurement_time_us;
+    status_.target_freshness_us = age;
+    if (now_us >= update.valid_until_us) {
+        safe_stop(TrackingStopReason::target_expired, dummy_error::target_expired);
+        return error(dummy_error::target_expired, ErrorSeverity::critical, 0,
+                     "target track update expired", now_us);
+    }
+    if (maximum_prediction_us == 0 || age > maximum_prediction_us) {
+        safe_stop(TrackingStopReason::prediction_timeout, dummy_error::target_expired);
+        return error(dummy_error::target_expired, ErrorSeverity::critical, 0,
+                     "maximum dead-reckoning interval exceeded", now_us);
+    }
+    const auto seconds = static_cast<double>(age) / 1'000'000.0;
+    TargetCoordinate predicted{{protocol_version, 1, now_us,
+        ComponentId::observation_asset, ComponentId::command_and_control,
+        update.observation_asset_id, update.observation_session_id},
+        1, now_us, CoordinateFrame::project_frame,
+        static_cast<float>(update.x_m + update.vx_mps * seconds),
+        static_cast<float>(update.y_m + update.vy_mps * seconds),
+        static_cast<float>(update.z_m + update.vz_mps * seconds),
+        update.confidence, update.vx_mps, update.vy_mps, update.vz_mps, true};
+    status_.predicted_x_m = predicted.x_m;
+    status_.predicted_y_m = predicted.y_m;
+    status_.predicted_z_m = predicted.z_m;
+    const auto solution = calculate_effector_pointing(
+        predicted, pose_, {limits_.minimum_pan_deg, limits_.maximum_pan_deg,
+                           limits_.minimum_tilt_deg, limits_.maximum_tilt_deg});
+    if (!std::holds_alternative<PointingSolution>(solution)) {
+        safe_stop(TrackingStopReason::outside_turret_limits, dummy_error::out_of_range);
+        return error(dummy_error::out_of_range, ErrorSeverity::critical, 0,
+                     "predicted target cannot be pointed within turret limits", now_us);
+    }
+    const auto& pointing = std::get<PointingSolution>(solution);
+    status_.target_pan_deg = pointing.pan_deg;
+    status_.target_tilt_deg = pointing.tilt_deg;
+    status_.current_pan_deg = pointing.pan_deg;
+    status_.current_tilt_deg = pointing.tilt_deg;
+    status_.aligned = true;
+    if (!status_.attack_active) status_.state = EffectorState::ready;
+    return std::nullopt;
+}
+
 void DummyEffectorAsset::advance(const std::uint64_t now_us) {
     if (status_.attack_active && now_us >= attack_end_us_) {
         status_.attack_active = false;
         status_.attack_armed = false;
         status_.state = EffectorState::ready;
     }
+}
+void DummyEffectorAsset::safe_stop(
+    const TrackingStopReason reason, const std::uint32_t error_code) {
+    status_.attack_active = false;
+    status_.attack_armed = false;
+    status_.automatic_tracking_active = false;
+    status_.aligned = false;
+    status_.state = error_code == 0 ? EffectorState::standby : EffectorState::fault;
+    status_.tracking_stop_reason = reason;
+    status_.error_code = error_code;
+    attack_end_us_ = 0;
+    if (reason == TrackingStopReason::operator_stop ||
+        reason == TrackingStopReason::emergency_stop)
+        target_update_.reset();
 }
 MessageHeader DummyEffectorAsset::header(const std::uint64_t now_us) {
     auto value = MessageHeader{protocol_version, sequence_, now_us,
@@ -364,9 +466,8 @@ void DummyEffectorAsset::remember(
 }
 AssetPose DummyEffectorAsset::asset_pose(const std::uint64_t now_us) {
     std::lock_guard lock(mutex_);
-    auto value = pose_;
-    value.header = header(now_us);
-    return value;
+    pose_.header = header(now_us);
+    return pose_;
 }
 EffectorStatus DummyEffectorAsset::status(const std::uint64_t now_us) {
     std::lock_guard lock(mutex_);
@@ -405,10 +506,8 @@ std::optional<ErrorReport> DummyEffectorAsset::check_watchdog(
         now_us <= last_control_heartbeat_us_ ||
         now_us - last_control_heartbeat_us_ <= timeout_us || watchdog_tripped_)
         return std::nullopt;
-    status_.attack_active = false;
-    status_.attack_armed = false;
-    status_.state = status_.aligned ? EffectorState::ready : EffectorState::standby;
-    attack_end_us_ = 0;
+    safe_stop(TrackingStopReason::communication_timeout,
+              dummy_error::communication_timeout);
     watchdog_tripped_ = true;
     return error(dummy_error::communication_timeout, ErrorSeverity::critical, 0,
                  "command-and-control heartbeat timed out", now_us);
