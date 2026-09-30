@@ -2,21 +2,30 @@
 
 MFS 시연 체계의 C++20 기반 통제소 서버다. 임의 개수의 관측·타격 자산을
 동적으로 등록하고, 관측 결과를 전역 트랙으로 관리하며, 안전 조건을 만족하는
-타격 자산을 자동 또는 수동으로 할당한다. UDP/Protobuf v2 메시지 계약은
+타격 자산을 자동 또는 수동으로 할당한다. UDP/Protobuf v3 메시지 계약은
 `protocol/mfs.proto`, 설계 결정은 `docs/decisions/`에서 관리한다.
 
 ## 좌표계 책임
 
 1. 관측 자산은 센서 로컬 좌표를 `PROJECT_FRAME` 월드좌표로 변환한다.
-2. 관측 자산은 변환한 표적을 `TargetCoordinate`로 송신한다.
+2. 감시/관측 자산은 변환한 표적 위치와 속도를 측정시각과 함께
+   `TargetCoordinate`로 송신한다. 두 용어는 같은 wire role을 뜻한다.
 3. 통제소는 관측 자산 `AssetPose`를 표적 좌표에 다시 적용하지 않는다.
-4. 통제소는 할당된 타격 자산의 `AssetPose`로 상대좌표와 Pan/Tilt를 계산한다.
-5. 통제소는 결과를 해당 자산·세션의 `EffectorTurretCommand`로 송신한다.
+4. 통제소는 최신 표적의 위치·속도·측정시각을 보존하고 할당된 타격 자산에
+   `TargetTrackUpdate`로 전달한다. 정상 자동 추적 경로에서 Pan/Tilt를 계산하지 않는다.
+5. 타격 자산은 자체 `AssetPose`와 현재시각으로 dead reckoning한 뒤 상대좌표와
+   Pan/Tilt를 계산하고, START 이후 고주기 제어 루프로 연속 지향한다.
 
 `OBSERVATION_FRAME`은 센서나 관측 터렛에 고정된 로컬 좌표계다. 센서 원시값을
 해석하고 보정하는 자산 내부 경계에서만 사용한다. C2 인터페이스의
 `TargetCoordinate`와 모든 `AssetPose`는 `PROJECT_FRAME`이어야 하며, 다른 프레임은
 검증 단계에서 거부한다.
+
+속도 단위는 m/s이고 위치 단위는 m, 시각 단위는 UTC microseconds다. 정지 표적은
+`velocity_valid=true`와 0 속도로 표현한다. 속도 미제공은 `velocity_valid=false`이며
+정지로 간주하지 않고 자동 연속 추적 스트림을 만들지 않는다. `duration_ms`는 타격
+출력 지속시간일 뿐 추적 종료시간이 아니다. 추적은 STOP/ESTOP, 표적 만료, 예측시간
+초과, Pose/통신 상실, 비정상 값 또는 터렛 한계 초과 때 안전 정지한다.
 
 ## 다중 자산 모델
 
@@ -110,7 +119,7 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 | `obs-stop OBS_ID` / `obs-home OBS_ID` | 관측 탐색 정지 / 원점 복귀 |
 | `assign TRACK_ID [EFFECTOR_ID]` | 자동 또는 수동 타격 자산 할당 |
 | `unassign TRACK_ID` | 공격 전 할당 해제 |
-| `point TRACK_ID` | 필요하면 자동 할당 후 해당 타격 자산 지향 |
+| `point TRACK_ID` | 수동/진단 호환 경로로 일회성 지향 명령 송신 |
 | `arm TRACK_ID` | 현재 할당·상태·지향 일치 검증 후 공격 준비 |
 | `start TRACK_ID DURATION_MS` | 무장·정렬·표적 일치 검증 후 공격 시작 |
 | `stop EFFECTOR_ID` | 보존 Endpoint를 포함해 특정 타격 자산 정지 |
@@ -139,11 +148,14 @@ port를 배정하고 등록 메시지로 광고한다.
 ```
 
 더미는 capability, 등록 주기/lease, 위치, 설치 방위각, Pan/Tilt 한계, 상태·Heartbeat
-주기와 watchdog을 옵션으로 받는다. 관측 더미는 표적 송신 주기도 설정할 수 있다.
+주기와 watchdog을 옵션으로 받는다. 관측 더미는 `--vx`, `--vy`, `--vz`,
+`--velocity-valid`와 표적 송신 주기를 설정할 수 있다. 타격 더미의 내부 제어 루프는
+약 10 ms, 최대 dead-reckoning 구간은 2 s, Pose 최신성 한계는 3 s다.
 `--asset-id`를 생략한 실행은 기존 고정 포트 호환 모드다.
 
 자동 시험은 관측 2대와 타격 3대를 실행해 동일 detection ID의 전역 트랙 분리,
-자동 할당, POINT/ARM/START, 전체 ESTOP, 동일 asset ID 재시작에 따른 session 교체를
+자동 할당, 이동표적 스트림, POINT/ARM/START, 출력시간 이후 연속 추적, 전체 ESTOP,
+동일 asset ID 재시작에 따른 session 교체를
 검증한다. 고정 시간만 기다리지 않고 제한시간 내 서버 상태와 명령 결과를 반복 확인해
 준비 완료·세션 교체·pending 종료 조건을 판정한다.
 

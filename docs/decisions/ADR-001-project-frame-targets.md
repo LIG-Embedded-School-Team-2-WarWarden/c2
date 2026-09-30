@@ -10,8 +10,8 @@ The observation asset converts sensor- and turret-local detections into the comm
 `PROJECT_FRAME` before transmitting `TargetCoordinate` to C2.
 
 C2 validates and stores the received world coordinate without applying the observation
-asset pose again. C2 uses the effector `AssetPose` to convert the world coordinate into
-an effector-relative vector and calculates the target Pan/Tilt angles.
+asset pose again. The effector-owned continuous-tracking responsibility in ADR-008
+supersedes the earlier decision that C2 calculates the target Pan/Tilt angles.
 
 Both observation and effector assets send `AssetPose` in `PROJECT_FRAME`. The observation
 pose remains useful for initialization, display, diagnostics, and consistency checks; it
@@ -24,4 +24,5 @@ Messages with an unspecified or unsupported coordinate frame are rejected.
 - Sensor calibration and local-to-world conversion belong to the observation asset.
 - C2 is independent of observation sensor geometry.
 - C2 must not perform Observation Frame to Project Frame conversion a second time.
-- Effector pointing requires a valid effector `AssetPose`.
+- Effector pointing requires a valid local `AssetPose` at the effector.
+- See ADR-008 for velocity, routing, dead reckoning, and tracking-stop semantics.

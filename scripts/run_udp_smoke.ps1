@@ -113,6 +113,42 @@ function Wait-SentCount {
     throw "Timed out waiting for ${Expected} successful commands. stdout=$(Get-ProcessText $Process), stderr=$(Get-ProcessText $Process -ErrorStream)"
 }
 
+function Wait-OutputCountPattern {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [string]$Pattern,
+        [int]$Expected,
+        [int]$TimeoutMs = 5000
+    )
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($timer.ElapsedMilliseconds -lt $TimeoutMs) {
+        $count = ([regex]::Matches((Get-ProcessText $Process), $Pattern)).Count
+        if ($count -ge $Expected) { return }
+        if ($Process.HasExited) { break }
+        Start-Sleep -Milliseconds 20
+    }
+    throw "Timed out waiting for ${Expected} matches of '${Pattern}'. stdout=$(Get-ProcessText $Process), stderr=$(Get-ProcessText $Process -ErrorStream)"
+}
+
+function Wait-AnyOutputPattern {
+    param(
+        [System.Diagnostics.Process[]]$Processes,
+        [string]$Pattern,
+        [int]$TimeoutMs = 10000
+    )
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($timer.ElapsedMilliseconds -lt $TimeoutMs) {
+        foreach ($process in $Processes) {
+            if (-not $process.HasExited -and (Get-ProcessText $process) -match $Pattern) {
+                return ,$process
+            }
+        }
+        Start-Sleep -Milliseconds 20
+    }
+    $outputs = $Processes | ForEach-Object { Get-ProcessText $_ }
+    throw "Timed out waiting for any process output '${Pattern}'. stdout=$($outputs -join "`n---`n")"
+}
+
 function Assert-InvalidConfiguration {
     param(
         [string]$Path,
@@ -160,7 +196,7 @@ try {
         '--asset-id', '101', '--listen-port', '0', '--c2-port', '15000',
         '--status-interval-ms', '80',
         '--heartbeat-interval-ms', '300', '--registration-interval-ms', '500',
-        '--target-interval-ms', '300',
+        '--target-interval-ms', '300', '--vx', '5',
         '--watchdog-timeout-ms', '4000'
     )
     $observation2 = Start-RedirectedProcess $observationPath @(
@@ -205,6 +241,9 @@ try {
         ++$sent
         Wait-SentCount $server $sent
     }
+    $trackingEffector = Wait-AnyOutputPattern @($effector1, $effector2, $effector3) 'tracking=1'
+    $trackingCount = ([regex]::Matches((Get-ProcessText $trackingEffector), 'tracking=1')).Count
+    Wait-OutputCountPattern $trackingEffector 'tracking=1' ($trackingCount + 2) 5000
     $server.StandardInput.WriteLine('assets')
     Wait-OutputPattern $server 'asset=201 role=2 session=\d+'
     $effector1.StandardInput.WriteLine('quit')
@@ -265,7 +304,7 @@ try {
     Assert-InvalidConfiguration $serverPath @('--heartbeat-interval-ms', '0') 'invalid heartbeat interval'
     Assert-InvalidConfiguration $observationPath @('--target-interval-ms', '0') 'invalid target interval'
     Assert-InvalidConfiguration $effectorPath @('--status-interval-ms', '0') 'invalid status interval'
-    Write-Host 'UDP process smoke test passed: 2 observations, 3 effectors, session replacement, 2 tracks, automatic assignment, attack flow, estop-all safe states.'
+    Write-Host 'UDP process smoke test passed: 2 observations, 3 effectors, moving-target routing, continuous tracking beyond output duration, session replacement, automatic assignment, attack flow, estop-all safe states.'
 } finally {
     foreach ($process in $processes) {
         if ($null -ne $process -and -not $process.HasExited) {
