@@ -661,6 +661,107 @@ TEST(ServerRuntimeAssignmentTest, AssignsNearestEffectorAndReassignsAfterHeartbe
     EXPECT_EQ(reassigned.assignment->effector_asset_id, 202U);
 }
 
+TEST(ServerRuntimeRegistrationTest, SessionReplacementEmergencyStopsOldEffectorEndpoint) {
+    struct Sent { std::vector<std::byte> data; c2::Endpoint endpoint; };
+    std::vector<Sent> sent;
+    c2::ServerRuntime server(config(), [&](auto data, const auto& endpoint) {
+        sent.push_back({{data.begin(), data.end()}, endpoint});
+    });
+    const c2::Endpoint old_source{"10.10.0.7", 40'001};
+    const c2::Endpoint new_source{"10.10.0.8", 40'002};
+    const auto old_session = registration(
+        201, 10, c2::AssetRole::effector, 60'101);
+    const auto new_session = registration(
+        201, 11, c2::AssetRole::effector, 60'102);
+    ASSERT_EQ(server.ingest(bytes(old_session), old_source, 100),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(new_session), new_source, 102),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(sent.size(), config().emergency_stop_repetitions);
+    std::uint32_t command_id{};
+    for (const auto& datagram : sent) {
+        EXPECT_EQ(datagram.endpoint.address, old_source.address);
+        EXPECT_EQ(datagram.endpoint.port, 60'101);
+        const auto decoded = c2::protobuf::decode(datagram.data);
+        ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+        const auto& command = std::get<c2::AttackCommand>(
+            std::get<c2::Envelope>(decoded).payload);
+        EXPECT_EQ(command.action, c2::AttackAction::emergency_stop);
+        EXPECT_EQ(command.header.asset_id, 201U);
+        EXPECT_EQ(command.header.session_id, 10U);
+        if (command_id == 0) command_id = command.command_id;
+        EXPECT_EQ(command.command_id, command_id);
+    }
+}
+
+TEST(ServerRuntimeAssignmentTest, RoutesUnchangedMotionOnlyToAssignedEffector) {
+    struct Sent { std::vector<std::byte> data; c2::Endpoint endpoint; };
+    std::vector<Sent> sent;
+    auto runtime_config = config();
+    runtime_config.registry = {8, 1'000, 10'000, 1'000};
+    c2::ServerRuntime server(runtime_config, [&](auto data, const auto& endpoint) {
+        sent.push_back({{data.begin(), data.end()}, endpoint});
+    });
+    const c2::Endpoint observer_source{"10.10.0.1", 40'001};
+    const c2::Endpoint first_source{"10.10.0.2", 40'002};
+    const c2::Endpoint assigned_source{"10.10.0.3", 40'003};
+    const auto observer = registration(101, 1, c2::AssetRole::observation, 51'101);
+    const auto first = registration(201, 1, c2::AssetRole::effector, 60'201);
+    const auto assigned = registration(202, 2, c2::AssetRole::effector, 60'202);
+    for (const auto& item : std::vector<std::pair<c2::AssetRegistration, c2::Endpoint>>{
+             {observer, observer_source}, {first, first_source}, {assigned, assigned_source}})
+        ASSERT_EQ(server.ingest(bytes(item.first), item.second, 100),
+                  c2::InboundResult::accepted);
+    for (const auto& item : std::vector<std::pair<c2::AssetRegistration, c2::Endpoint>>{
+             {first, first_source}, {assigned, assigned_source}}) {
+        ASSERT_EQ(server.ingest(bytes(heartbeat(item.first, 2)), item.second, 101),
+                  c2::InboundResult::accepted);
+        ASSERT_EQ(server.ingest(bytes(pose(item.first, 3, 0)), item.second, 102),
+                  c2::InboundResult::accepted);
+        ASSERT_EQ(server.ingest(bytes(effector_status(item.first, 4)), item.second, 103),
+                  c2::InboundResult::accepted);
+    }
+    c2::TargetCoordinate target{
+        {c2::protocol_version, 2, 104, c2::ComponentId::observation_asset,
+         c2::ComponentId::command_and_control, 101, 1},
+        7, 104, c2::CoordinateFrame::project_frame,
+        10, 20, 30, 0.9F, 1.25F, -2.5F, 0.5F, true};
+    ASSERT_EQ(server.ingest(bytes(target), observer_source, 104),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(server.assign(1, 202, 105).result, c2::AssignmentResult::assigned);
+    ASSERT_EQ(sent.size(), 1U);
+    EXPECT_EQ(sent.front().endpoint.address, assigned_source.address);
+    EXPECT_EQ(sent.front().endpoint.port, 60'202);
+    auto decoded = c2::protobuf::decode(sent.back().data);
+    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+    const auto& initial = std::get<c2::TargetTrackUpdate>(
+        std::get<c2::Envelope>(decoded).payload);
+    EXPECT_EQ(initial.track_id, 1U);
+    EXPECT_FLOAT_EQ(initial.vx_mps, target.vx_mps);
+    EXPECT_FLOAT_EQ(initial.vy_mps, target.vy_mps);
+    EXPECT_FLOAT_EQ(initial.vz_mps, target.vz_mps);
+    EXPECT_EQ(initial.measurement_time_us, target.measurement_time_us);
+    EXPECT_EQ(initial.header.asset_id, 202U);
+    EXPECT_EQ(initial.header.session_id, 2U);
+
+    target.header.sequence = 3;
+    target.header.timestamp_us = 106;
+    target.measurement_time_us = 106;
+    target.x_m = 11;
+    target.vx_mps = 3.75F;
+    ASSERT_EQ(server.ingest(bytes(target), observer_source, 106),
+              c2::InboundResult::accepted);
+    ASSERT_EQ(sent.size(), 2U);
+    EXPECT_EQ(sent.back().endpoint.address, assigned_source.address);
+    EXPECT_EQ(sent.back().endpoint.port, 60'202);
+    decoded = c2::protobuf::decode(sent.back().data);
+    const auto& refreshed = std::get<c2::TargetTrackUpdate>(
+        std::get<c2::Envelope>(decoded).payload);
+    EXPECT_FLOAT_EQ(refreshed.x_m, 11.0F);
+    EXPECT_FLOAT_EQ(refreshed.vx_mps, 3.75F);
+    EXPECT_EQ(refreshed.measurement_time_us, 106U);
+}
+
 TEST(ServerRuntimeAssignmentTest, RejectsUnsafeManualChoiceAndMarksUnregisteredAssignmentLost) {
     auto runtime_config = config();
     runtime_config.registry = {8, 1'000, 10'000, 1'000};
