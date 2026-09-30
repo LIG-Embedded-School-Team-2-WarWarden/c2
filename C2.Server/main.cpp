@@ -191,6 +191,16 @@ int main(int argc, char* argv[]) {
                             std::cout << " effector_state="
                                       << static_cast<std::uint32_t>(
                                              asset.effector_status->state)
+                                      << " tracking="
+                                      << (asset.effector_status->automatic_tracking_active
+                                              ? "yes" : "no")
+                                      << " tracking_track="
+                                      << asset.effector_status->tracking_track_id
+                                      << " target_age_us="
+                                      << asset.effector_status->target_freshness_us
+                                      << " tracking_stop="
+                                      << static_cast<std::uint32_t>(
+                                             asset.effector_status->tracking_stop_reason)
                                       << " status_current="
                                       << (asset.status_current ? "yes" : "no");
                         std::cout << '\n';

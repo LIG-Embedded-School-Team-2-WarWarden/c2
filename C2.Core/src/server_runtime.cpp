@@ -1,6 +1,7 @@
 #include "c2/server_runtime.hpp"
 
 #include "c2/protobuf_codec.hpp"
+#include "c2/protocol_validation.hpp"
 
 #include <stdexcept>
 #include <type_traits>
@@ -63,6 +64,10 @@ InboundResult ServerRuntime::ingest(
                     message, source, received_at_us);
                 if (result == AssetRegistryResult::session_replaced && previous &&
                     previous->session_id != message.header.session_id) {
+                    if (previous->role == AssetRole::effector)
+                        (void)dispatch_safety_command(
+                            *previous, AttackAction::emergency_stop,
+                            config_.emergency_stop_repetitions, received_at_us);
                     (void)command_tracker_.end_session(
                         previous->asset_id, previous->session_id, received_at_us);
                     if (previous->role == AssetRole::effector)
@@ -126,8 +131,20 @@ InboundResult ServerRuntime::ingest(
                 }
                 const auto result = tracks_.update(message, received_at_us);
                 if (result.result == TrackUpdateResult::stored ||
-                    result.result == TrackUpdateResult::duplicate)
+                    result.result == TrackUpdateResult::duplicate) {
+                    if (result.result == TrackUpdateResult::stored) {
+                        const auto assignment = assignments_.assignment(result.track_id);
+                        const auto track = tracks_.track(result.track_id, received_at_us);
+                        const auto asset = assignment
+                            ? registry_.asset(assignment->effector_asset_id, received_at_us)
+                            : std::nullopt;
+                        if (assignment && track && asset &&
+                            assignment->state == AssignmentResult::assigned &&
+                            asset->session_id == assignment->effector_session_id)
+                            dispatch_track_update(*track, *asset, received_at_us);
+                    }
                     return InboundResult::accepted;
+                }
                 record_inbound_rejection(
                     InboundRejectionCategory::state_update,
                     kind, &message.header, AssetRegistryResult::invalid,
@@ -387,13 +404,14 @@ AttackDispatchResult ServerRuntime::attack(
             return DispatchError::command_rejected;
         {
             std::lock_guard lock(routed_point_mutex_);
-            const auto point = routed_points_.find(target_id);
-            if (point == routed_points_.end() ||
-                point->second.asset_id != asset->asset_id ||
-                point->second.session_id != asset->session_id ||
-                point->second.command.target_id != target_id ||
-                point->second.command.valid_until_us <= now_us)
-                return DispatchError::command_rejected;
+            if (asset->effector_status->tracking_track_id != target_id) {
+                const auto point = routed_points_.find(target_id);
+                if (point == routed_points_.end() ||
+                    point->second.asset_id != asset->asset_id ||
+                    point->second.session_id != asset->session_id ||
+                    point->second.command.valid_until_us <= now_us)
+                    return DispatchError::command_rejected;
+            }
         }
         if (now_us == 0 ||
             now_us > std::numeric_limits<std::uint64_t>::max() -
@@ -415,6 +433,7 @@ AttackDispatchResult ServerRuntime::attack(
         if (action == AttackAction::start &&
             !assignments_.mark_attack_started(target_id))
             return DispatchError::command_rejected;
+        dispatch_track_update(*track, *asset, now_us);
         sender_(encoded, asset->command_endpoint);
         return command;
     }
@@ -627,7 +646,12 @@ AssignmentDecision ServerRuntime::assign(
     if (!track) return {AssignmentResult::invalid_track, std::nullopt};
     auto candidates = effector_candidates(now_us);
     invalidate_unsafe_assignment(*track, candidates, now_us);
-    return assignments_.assign(*track, candidates);
+    auto decision = assignments_.assign(*track, candidates);
+    if (decision.result == AssignmentResult::assigned && decision.assignment) {
+        const auto asset = registry_.asset(decision.assignment->effector_asset_id, now_us);
+        if (asset) dispatch_track_update(*track, *asset, now_us);
+    }
+    return decision;
 }
 
 AssignmentDecision ServerRuntime::assign(
@@ -637,7 +661,12 @@ AssignmentDecision ServerRuntime::assign(
     if (!track) return {AssignmentResult::invalid_track, std::nullopt};
     auto candidates = effector_candidates(now_us);
     invalidate_unsafe_assignment(*track, candidates, now_us);
-    return assignments_.assign(*track, candidates, effector_asset_id);
+    auto decision = assignments_.assign(*track, candidates, effector_asset_id);
+    if (decision.result == AssignmentResult::assigned && decision.assignment) {
+        const auto asset = registry_.asset(decision.assignment->effector_asset_id, now_us);
+        if (asset) dispatch_track_update(*track, *asset, now_us);
+    }
+    return decision;
 }
 
 std::optional<AssetAssignment> ServerRuntime::assignment(
@@ -769,5 +798,26 @@ void ServerRuntime::assign_effector_identity(AttackCommand& command) {
     command.header.sequence = next_effector_sequence_;
     next_effector_command_id_ = next_non_zero(next_effector_command_id_);
     next_effector_sequence_ = next_non_zero(next_effector_sequence_);
+}
+
+void ServerRuntime::dispatch_track_update(
+    const TrackSnapshot& track, const AssetSnapshot& asset,
+    const std::uint64_t now_us) {
+    const auto& measurement = track.measurement;
+    if (!measurement.velocity_valid || asset.role != AssetRole::effector ||
+        asset.connection_state != AssetConnectionState::connected)
+        return;
+    TargetTrackUpdate update{
+        {protocol_version, next_target_update_sequence_, now_us,
+         ComponentId::command_and_control, ComponentId::effector_asset,
+         asset.asset_id, asset.session_id},
+        track.track_id, CoordinateFrame::project_frame,
+        measurement.x_m, measurement.y_m, measurement.z_m,
+        measurement.vx_mps, measurement.vy_mps, measurement.vz_mps,
+        true, measurement.measurement_time_us, track.expires_at_us,
+        measurement.confidence, track.observation_asset_id,
+        track.observation_session_id};
+    if (validate(update).valid()) dispatch(update, asset.command_endpoint);
+    next_target_update_sequence_ = next_non_zero(next_target_update_sequence_);
 }
 }  // namespace c2

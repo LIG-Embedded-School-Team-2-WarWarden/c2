@@ -158,6 +158,9 @@ private:
         std::uint32_t repetitions, std::uint64_t now_us);
     void assign_effector_identity(EffectorTurretCommand& command);
     void assign_effector_identity(AttackCommand& command);
+    void dispatch_track_update(
+        const TrackSnapshot& track, const AssetSnapshot& asset,
+        std::uint64_t now_us);
     void record_inbound_rejection(
         InboundRejectionCategory category, MessageKind message_kind,
         const MessageHeader* header, AssetRegistryResult reason,
@@ -178,6 +181,7 @@ private:
     std::mutex effector_identity_mutex_;
     std::uint32_t next_effector_command_id_;
     std::uint32_t next_effector_sequence_;
+    std::uint32_t next_target_update_sequence_{1};
     struct RoutedPoint {
         std::uint64_t asset_id{};
         std::uint64_t session_id{};
