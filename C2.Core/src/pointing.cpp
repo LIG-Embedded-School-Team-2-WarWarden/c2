@@ -3,6 +3,7 @@
 #include "c2/protocol_validation.hpp"
 
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 namespace c2 {
@@ -21,6 +22,19 @@ float normalize_pan(float angle) noexcept {
     return angle;
 }
 }  // namespace
+
+Velocity3 rotate_velocity_to_project(
+    const Velocity3 local, const float sensor_azimuth_deg) {
+    if (!std::isfinite(local.x_mps) || !std::isfinite(local.y_mps) ||
+        !std::isfinite(local.z_mps) || !std::isfinite(sensor_azimuth_deg))
+        return {std::numeric_limits<float>::quiet_NaN(),
+                std::numeric_limits<float>::quiet_NaN(),
+                std::numeric_limits<float>::quiet_NaN()};
+    const auto angle = radians(sensor_azimuth_deg);
+    return {std::cos(angle) * local.x_mps - std::sin(angle) * local.y_mps,
+            std::sin(angle) * local.x_mps + std::cos(angle) * local.y_mps,
+            local.z_mps};
+}
 
 std::variant<PointingSolution, PointingError> calculate_effector_pointing(
     const TargetCoordinate& target,
