@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
 project(c2 LANGUAGES CXX)
 
+add_subdirectory(external/warwarden-protocol)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -15,8 +17,6 @@ set(C2_CORE_SOURCES
     C2.Core/src/effector_command_service.cpp
     C2.Core/src/observation_command_service.cpp
     C2.Core/src/pointing.cpp
-    C2.Core/src/protobuf_codec.cpp
-    C2.Core/src/protocol_validation.cpp
     C2.Core/src/server_runtime.cpp
     C2.Core/src/server_console.cpp
     C2.Core/src/server_options.cpp
@@ -29,7 +29,7 @@ set(C2_CORE_SOURCES
 add_library(c2_core STATIC ${C2_CORE_SOURCES})
 target_include_directories(c2_core PUBLIC C2.Core/include)
 target_compile_definitions(c2_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(c2_core PUBLIC ws2_32)
+target_link_libraries(c2_core PUBLIC ws2_32 WarWarden::Protocol)
 
 add_executable(c2_server C2.Server/main.cpp)
 target_link_libraries(c2_server PRIVATE c2_core)
