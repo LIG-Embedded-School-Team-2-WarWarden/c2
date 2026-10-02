@@ -119,6 +119,7 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 |---|---|
 | `assets` | 자산·세션·Endpoint·연결·Pose·capability·상태·할당 조회 |
 | `targets` | 전역 track ID, 원 관측 자산/detection ID와 좌표 조회 |
+| `dev-pose ASSET_ID X Y Z AZIMUTH_DEG` | 개발용 자산 위치(m)·설치 방위(deg) 설정 |
 | `scan OBS_ID PAN TILT` | 지정 관측 자산이 해당 방향에서 탐색 시작 |
 | `observe OBS_ID PAN TILT` | 지정 관측 자산을 절대 Pan/Tilt로 지향 |
 | `obs-stop OBS_ID` / `obs-home OBS_ID` | 관측 탐색 정지 / 원점 복귀 |
@@ -138,6 +139,26 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 일반 명령은 등록 lease, Heartbeat 연결, 새 세션의 `AssetPose` 재동기화와 상태
 최신성을 요구한다. STOP과 ESTOP은 안전 우선 명령이므로 연결이 끊긴 보존 자산에도
 전송한다. ESTOP 반복 패킷은 동일 command ID를 사용한다.
+
+## 개발용 위치·방위 설정
+
+실행 중인 통제소 콘솔에서 `dev-pose 201 10 20 1.5 90`을 입력하면 자산 201의
+설치 위치와 방위를 변경한다. 두 종류의 더미 자산 모두 지원하며 `PROJECT_FRAME`
+위치(m), +X에서 +Y 방향으로 증가하는 설치 방위(deg, 0 이상 360 미만)를 사용한다.
+설치 방위는 현재 터렛 Pan/Tilt와 구분되며 이 명령은 모터를 이동시키지 않는다.
+
+등록과 Heartbeat 연결, `development_pose` capability(bit 3, 값 8)가 필요하다.
+초기 Pose가 없어도 설정할 수 있지만 미등록·단절 자산에는 보내지 않는다.
+관측 자산은 STANDBY이며 탐색·축 이동이 중단되어야 하고, 포인터 자산은
+STANDBY이며 출력·무장·자동 추적이 중단되어야 한다. C2의 활성 할당이 있으면
+`unassign`으로 해제해야 한다. 필요하면 먼저 `obs-stop` 또는 `stop`을 실행한다.
+
+`sent`는 송신 결과다. 적용 성공은 `outcomes`의 완료 ACK와 `assets`에 재보고된
+Pose로 확인한다. C2는 송신만으로 자체 Pose를 덮어쓰지 않는다. 값은 자산 내부에
+원자적으로 적용되어 이후 주기 보고에도 유지되고, 자산 재시작 시 실행 옵션값으로
+돌아간다. 재시작 후 새 세션에는 자동 재적용하지 않는다. 실제 GPS 등의 자동 추정과
+전환하는 계약은 이번 기능에 포함하지 않는다. 상세 ICD는
+`docs/icd/development-pose-command.md`에서 관리한다.
 
 ## 다중 더미 자산 시연
 

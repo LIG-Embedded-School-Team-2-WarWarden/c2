@@ -209,6 +209,58 @@ InboundResult ServerRuntime::ingest(
         payload);
 }
 
+DevelopmentPoseDispatchResult ServerRuntime::set_development_pose(
+    const std::uint64_t asset_id, const float x_m, const float y_m,
+    const float z_m, const float azimuth_deg, const std::uint64_t now_us) {
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
+    const auto asset = registry_.asset(asset_id, now_us);
+    if (!asset || asset->connection_state != AssetConnectionState::connected)
+        return DispatchError::connection_unavailable;
+    if ((asset->capabilities & capability::development_pose) == 0)
+        return DispatchError::command_rejected;
+    if (asset->role == AssetRole::effector) {
+        for (const auto& assignment : assignments_.assignments())
+            if (assignment.effector_asset_id == asset_id &&
+                assignment.state == AssignmentResult::assigned)
+                return DispatchError::command_rejected;
+    }
+    const auto validity = asset->role == AssetRole::observation
+        ? config_.observation_commands.command_validity_us
+        : config_.effector_commands.command_validity_us;
+    if (now_us == 0 || now_us > std::numeric_limits<std::uint64_t>::max() - validity)
+        return DispatchError::command_rejected;
+    DevelopmentPoseCommand command{
+        {protocol_version, 1, now_us, ComponentId::command_and_control,
+         asset->role == AssetRole::observation ? ComponentId::observation_asset
+                                               : ComponentId::effector_asset,
+         asset_id, asset->session_id},
+        1, CoordinateFrame::project_frame, x_m, y_m, z_m, azimuth_deg, now_us + validity};
+    if (!validate(command).valid()) return DispatchError::command_rejected;
+    try {
+        if (asset->role == AssetRole::observation) {
+            const auto identity = observation_commands_.create(
+                ObservationTurretCommandType::stop, 0, 0, now_us);
+            command.command_id = identity.command_id;
+            command.header.sequence = identity.header.sequence;
+        } else {
+            std::lock_guard lock(effector_identity_mutex_);
+            command.command_id = next_effector_command_id_;
+            command.header.sequence = next_effector_sequence_;
+            next_effector_command_id_ = next_non_zero(next_effector_command_id_);
+            next_effector_sequence_ = next_non_zero(next_effector_sequence_);
+        }
+        const auto encoded = protobuf::encode(Envelope{command});
+        if (command_tracker_.track({asset_id, asset->session_id, command.command_id,
+                                   encoded, asset->command_endpoint, now_us,
+                                   command.valid_until_us}) != CommandTrackResult::tracked)
+            return DispatchError::command_rejected;
+        sender_(encoded, asset->command_endpoint);
+        return command;
+    } catch (const std::exception&) {
+        return DispatchError::command_rejected;
+    }
+}
+
 ObservationDispatchResult ServerRuntime::command_observation(
     const std::uint64_t asset_id, const ObservationTurretCommandType type,
     const float pan_deg, const float tilt_deg, const std::uint64_t now_us) {
