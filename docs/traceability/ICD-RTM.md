@@ -44,11 +44,12 @@
 | ICD-TC-016 | 저장소/할당/ACK 경합 동시성 | 통과 |
 | ICD-TC-017 | 잘못된 실행 설정과 용량 상한 | 통과 |
 | ICD-TC-018 | 관측 2 + 타격 3 UDP, 이동표적 연속 추적, 자산 재시작 session 교체 | 통과 |
-| ICD-TC-019 | 실제 LiDAR 로컬→PROJECT_FRAME 변환 | 실제 관측 HW/SW 필요 |
+| ICD-TC-019 | 관측 자산의 LiDAR 로컬 위치·속도→PROJECT_FRAME 변환 및 장착 오프셋 반영 | 실제 관측 HW/SW 필요 |
 
 ## 의도적으로 남은 항목
 
-- 실제 LiDAR SDK, calibration, 원시 데이터 처리와 탐지 알고리즘
+- 실제 LiDAR SDK, 장착 오프셋을 포함한 좌표변환, 실측 calibration 값,
+  원시 데이터 처리와 탐지 알고리즘
 - 실제 Pan/Tilt 모터, limit/encoder/feedback 및 레이저 출력 제어
 - 정식 GUI와 C2 프로세스 간 API/IPC 계약, 화면 및 운용 승인 흐름
 - 암호학적 자산 인증, 전송 보안, 키 관리, 권한 분리와 감사 로그
