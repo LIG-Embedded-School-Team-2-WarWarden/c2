@@ -93,3 +93,15 @@ TEST(ServerOptionsTest, RejectsUnknownMissingZeroOverflowAndContradictoryValues)
                      std::invalid_argument);
     }
 }
+
+TEST(ServerOptionsTest, ConfiguresBoundedIngressAndRejectsZeroLimits) {
+    const std::vector<std::string_view> arguments{
+        "--ingress-queue-capacity", "32", "--ingress-queue-bytes", "65536"};
+    const auto options = c2::parse_server_options(arguments);
+    EXPECT_EQ(options.ingress.maximum_queued_datagrams, 32);
+    EXPECT_EQ(options.ingress.maximum_queued_bytes, 65536);
+    for (const auto name : {"--ingress-queue-capacity", "--ingress-queue-bytes"}) {
+        const std::vector<std::string_view> invalid{name, "0"};
+        EXPECT_THROW((void)c2::parse_server_options(invalid), std::invalid_argument);
+    }
+}

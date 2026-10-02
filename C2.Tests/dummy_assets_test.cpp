@@ -1,5 +1,89 @@
 #include "pch.h"
 #include "c2/dummy_assets.hpp"
+#include "c2/protobuf_codec.hpp"
+#include <limits>
+
+TEST(DevelopmentPoseTest, AppliesBothRolesAndReportsPoseWithoutMovingAxes) {
+    for (const auto role : {c2::ComponentId::observation_asset, c2::ComponentId::effector_asset}) {
+        c2::AssetPose initial{{c2::protocol_version, 1, 1, role,
+            c2::ComponentId::command_and_control, 42, 7},
+            c2::CoordinateFrame::project_frame, 0, 0, 0, 0};
+        c2::DevelopmentPoseCommand command{{c2::protocol_version, 1, 10,
+            c2::ComponentId::command_and_control, role, 42, 7},
+            1, c2::CoordinateFrame::project_frame, -10, 20, 1.5F, 90, 100};
+        const auto packet = c2::protobuf::encode(c2::Envelope{command});
+        const auto decoded = c2::protobuf::decode(packet);
+        ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+        auto restored = std::get<c2::DevelopmentPoseCommand>(std::get<c2::Envelope>(decoded).payload);
+        EXPECT_EQ(c2::message_kind(c2::Envelope{restored}), c2::MessageKind::development_pose_command);
+        EXPECT_EQ(restored.valid_until_us, 100U);
+        auto check = [&](auto& asset) {
+            const auto result = asset.handle(restored, 11);
+            EXPECT_EQ(result.acknowledgement.result, c2::CommandResult::completed);
+            auto actual = asset.asset_pose(12);
+            EXPECT_FLOAT_EQ(actual.x_m, -10);
+            EXPECT_FLOAT_EQ(actual.y_m, 20);
+            EXPECT_FLOAT_EQ(actual.z_m, 1.5F);
+            EXPECT_FLOAT_EQ(actual.azimuth_deg, 90);
+            EXPECT_EQ(actual.header.asset_id, 42U);
+            EXPECT_EQ(actual.header.session_id, 7U);
+            EXPECT_FLOAT_EQ(asset.status(12).current_pan_deg, 0);
+            restored.x_m = 999;
+            EXPECT_TRUE(asset.handle(restored, 13).duplicate);
+            EXPECT_FLOAT_EQ(asset.asset_pose(14).x_m, -10);
+            restored.command_id = 2;
+            restored.azimuth_deg = 360;
+            EXPECT_EQ(asset.handle(restored, 15).acknowledgement.result, c2::CommandResult::rejected);
+            EXPECT_FLOAT_EQ(asset.asset_pose(16).x_m, -10);
+            restored.command_id = 3;
+            restored.azimuth_deg = 0;
+            EXPECT_EQ(asset.handle(restored, 100).acknowledgement.error_code, c2::dummy_error::expired_command);
+            restored.command_id = 4;
+            restored.header.session_id = 8;
+            EXPECT_EQ(asset.handle(restored, 17).acknowledgement.result, c2::CommandResult::rejected);
+            restored.header.session_id = 7;
+            restored.x_m = std::numeric_limits<float>::quiet_NaN();
+            EXPECT_FALSE(c2::validate(restored).valid());
+            EXPECT_FLOAT_EQ(asset.asset_pose(18).x_m, -10);
+        };
+        if (role == c2::ComponentId::observation_asset) {
+            c2::DummyObservationAsset asset(initial, {-180, 180, -90, 90});
+            check(asset);
+        } else {
+            c2::DummyEffectorAsset asset(initial);
+            check(asset);
+        }
+    }
+}
+
+TEST(DevelopmentPoseTest, RejectsChangesDuringOperationAndRestoresStartupPoseOnRestart) {
+    c2::AssetPose initial{{c2::protocol_version, 1, 1, c2::ComponentId::observation_asset,
+        c2::ComponentId::command_and_control}, c2::CoordinateFrame::project_frame, 5, 0, 0, 0};
+    c2::DummyObservationAsset observer(initial, {-180, 180, -90, 90});
+    const c2::ObservationTurretCommand scan{{c2::protocol_version, 1, 10,
+        c2::ComponentId::command_and_control, c2::ComponentId::observation_asset},
+        1, c2::ObservationTurretCommandType::scan, 0, 0, 100};
+    ASSERT_EQ(observer.handle(scan, 11).acknowledgement.result, c2::CommandResult::completed);
+    c2::DevelopmentPoseCommand command{{c2::protocol_version, 2, 12,
+        c2::ComponentId::command_and_control, c2::ComponentId::observation_asset},
+        2, c2::CoordinateFrame::project_frame, 20, 30, 40, 90, 100};
+    EXPECT_EQ(observer.handle(command, 13).acknowledgement.error_code, c2::dummy_error::invalid_state);
+    EXPECT_FLOAT_EQ(observer.asset_pose(14).x_m, 5);
+    initial.header.source_id = c2::ComponentId::effector_asset;
+    c2::DummyEffectorAsset pointer(initial);
+    const c2::EffectorTurretCommand point{{c2::protocol_version, 1, 10,
+        c2::ComponentId::command_and_control, c2::ComponentId::effector_asset},
+        1, 7, 20, 0, 100};
+    ASSERT_EQ(pointer.handle(point, 11).acknowledgement.result, c2::CommandResult::completed);
+    command.header.destination_id = c2::ComponentId::effector_asset;
+    EXPECT_EQ(pointer.handle(command, 13).acknowledgement.error_code, c2::dummy_error::invalid_state);
+    EXPECT_FLOAT_EQ(pointer.asset_pose(14).x_m, 5);
+    c2::DummyEffectorAsset restarted(initial);
+    EXPECT_EQ(restarted.handle(command, 15).acknowledgement.result, c2::CommandResult::completed);
+    EXPECT_FLOAT_EQ(restarted.asset_pose(16).x_m, 20);
+    c2::DummyEffectorAsset restarted_again(initial);
+    EXPECT_FLOAT_EQ(restarted_again.asset_pose(17).x_m, 5);
+}
 
 namespace {
 c2::MessageHeader header(c2::ComponentId source,c2::ComponentId destination,std::uint32_t sequence,std::uint64_t time){return{c2::protocol_version,sequence,time,source,destination};}

@@ -24,24 +24,15 @@ bool supported(const ObservationTurretCommandType type) noexcept {
     return type == ObservationTurretCommandType::home ||
            type == ObservationTurretCommandType::stop || uses_target_angles(type);
 }
-
-std::uint32_t increment_non_zero(const std::uint32_t value) noexcept {
-    return value == std::numeric_limits<std::uint32_t>::max() ? 1U : value + 1U;
-}
 }  // namespace
 
 ObservationCommandService::ObservationCommandService(ObservationCommandConfig config)
     : config_(config),
-      next_command_id_(config.first_command_id),
-      next_sequence_(config.first_sequence) {
+      identity_(config.first_command_id, config.first_sequence) {
     if (!valid_limits(config_.limits))
         throw std::invalid_argument("observation turret limits are invalid");
     if (config_.command_validity_us == 0)
         throw std::invalid_argument("command validity must be non-zero");
-    if (next_command_id_ == 0)
-        throw std::invalid_argument("first command id must be non-zero");
-    if (next_sequence_ == 0)
-        throw std::invalid_argument("first sequence must be non-zero");
 }
 
 ObservationTurretCommand ObservationCommandService::create(
@@ -68,15 +59,14 @@ ObservationTurretCommand ObservationCommandService::create(
 
     std::lock_guard lock(mutex_);
     ObservationTurretCommand command{
-        {protocol_version, next_sequence_, now_us, ComponentId::command_and_control,
+        {protocol_version, 1, now_us, ComponentId::command_and_control,
          ComponentId::observation_asset},
-        next_command_id_, type, target_pan_deg, target_tilt_deg,
+        1, type, target_pan_deg, target_tilt_deg,
         now_us + config_.command_validity_us};
     if (!validate(command, config_.limits).valid())
         throw std::logic_error("generated observation command is invalid");
 
-    next_command_id_ = increment_non_zero(next_command_id_);
-    next_sequence_ = increment_non_zero(next_sequence_);
+    identity_.assign(command);
     return command;
 }
 }  // namespace c2

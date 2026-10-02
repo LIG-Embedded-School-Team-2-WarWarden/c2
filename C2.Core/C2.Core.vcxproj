@@ -146,6 +146,7 @@
     <ClCompile Include="src\attack_command_service.cpp" />
     <ClCompile Include="src\asset_registry.cpp" />
     <ClCompile Include="src\asset_assignment.cpp" />
+    <ClCompile Include="src\datagram_processor.cpp" />
     <ClCompile Include="src\connection_monitor.cpp" />
     <ClCompile Include="src\command_tracker.cpp" />
     <ClCompile Include="src\dummy_assets.cpp" />
@@ -155,6 +156,8 @@
     <ClCompile Include="src\protobuf_codec.cpp" />
     <ClCompile Include="src\protocol_validation.cpp" />
     <ClCompile Include="src\server_runtime.cpp" />
+    <ClCompile Include="src\inbound_message_router.cpp" />
+    <ClCompile Include="src\assignment_coordinator.cpp" />
     <ClCompile Include="src\server_console.cpp" />
     <ClCompile Include="src\server_options.cpp" />
     <ClCompile Include="src\server_udp_ingress.cpp" />
@@ -169,6 +172,7 @@
     <ClInclude Include="include\c2\asset_assignment.hpp" />
     <ClInclude Include="include\c2\connection_monitor.hpp" />
     <ClInclude Include="include\c2\command_tracker.hpp" />
+    <ClInclude Include="include\c2\legacy_command_tracker.hpp" />
     <ClInclude Include="include\c2\dummy_assets.hpp" />
     <ClInclude Include="include\c2\effector_command_service.hpp" />
     <ClInclude Include="include\c2\observation_command_service.hpp" />
@@ -177,6 +181,16 @@
     <ClInclude Include="include\c2\protocol.hpp" />
     <ClInclude Include="include\c2\protocol_validation.hpp" />
     <ClInclude Include="include\c2\server_runtime.hpp" />
+    <ClInclude Include="include\c2\command_identity.hpp" />
+    <ClInclude Include="include\c2\datagram_sender.hpp" />
+    <ClInclude Include="include\c2\datagram_processor.hpp" />
+    <ClInclude Include="include\c2\routed_point_store.hpp" />
+    <ClInclude Include="include\c2\runtime_types.hpp" />
+    <ClInclude Include="include\c2\inbound_rejection_log.hpp" />
+    <ClInclude Include="include\c2\track_update_publisher.hpp" />
+    <ClInclude Include="include\c2\inbound_message_router.hpp" />
+    <ClInclude Include="include\c2\heartbeat_publisher.hpp" />
+    <ClInclude Include="include\c2\assignment_coordinator.hpp" />
     <ClInclude Include="include\c2\server_console.hpp" />
     <ClInclude Include="include\c2\server_options.hpp" />
     <ClInclude Include="include\c2\server_udp_ingress.hpp" />

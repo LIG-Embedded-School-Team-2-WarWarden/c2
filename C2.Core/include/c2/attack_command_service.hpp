@@ -1,6 +1,7 @@
 #pragma once
 
 #include "c2/protocol.hpp"
+#include "c2/command_identity.hpp"
 
 #include <cstdint>
 #include <mutex>
@@ -31,6 +32,12 @@ enum class AttackCommandError {
 
 using AttackCommandResult = std::variant<AttackCommand, AttackCommandError>;
 
+struct AttackCommandContext {
+    std::optional<EffectorStatus> status;
+    bool target_available{};
+    std::uint64_t target_id{};
+};
+
 class AttackCommandService final {
 public:
     explicit AttackCommandService(AttackCommandConfig config);
@@ -40,13 +47,20 @@ public:
     [[nodiscard]] AttackCommandResult create(
         AttackAction action, std::uint64_t target_id,
         std::uint32_t duration_ms, std::uint64_t now_us);
+    // Caller resolves session, connection and target freshness; this service
+    // owns attack preconditions and command construction.
+    [[nodiscard]] AttackCommandResult create(
+        AttackAction action, std::uint64_t target_id, std::uint32_t duration_ms,
+        std::uint64_t now_us, const AttackCommandContext& context);
 
 private:
+    [[nodiscard]] AttackCommandResult create_locked(
+        AttackAction action, std::uint64_t target_id, std::uint32_t duration_ms,
+        std::uint64_t now_us, const AttackCommandContext& context);
     AttackCommandConfig config_;
     std::mutex mutex_;
     std::optional<EffectorStatus> status_;
     std::optional<EffectorTurretCommand> pointing_command_;
-    std::uint32_t next_command_id_;
-    std::uint32_t next_sequence_;
+    CommandIdentity identity_;
 };
 }  // namespace c2
