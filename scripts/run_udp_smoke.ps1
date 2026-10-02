@@ -204,6 +204,7 @@ try {
         '--status-interval-ms', '80',
         '--heartbeat-interval-ms', '300', '--registration-interval-ms', '500',
         '--target-interval-ms', '300', '--y', '20',
+        '--target-x', '2', '--target-y', '3', '--target-z', '4',
         '--watchdog-timeout-ms', '4000'
     )
     $effector1 = Start-RedirectedProcess $effectorPath @(
@@ -228,6 +229,8 @@ try {
     $processes = @($server) + $assets
 
     Wait-OutputPattern $server 'assets=5 tracks=2' 10000 'status'
+    $server.StandardInput.WriteLine('targets')
+    Wait-OutputPattern $server 'observer=102 detection=1 xyz=\(2,3,4\)' 10000 'targets'
     $sent = 0
     Wait-OutputPattern $server '(?s)asset=102[^\r\n]*connection=CONNECTED.*asset=203[^\r\n]*connection=CONNECTED' 10000 'assets'
     foreach ($poseCase in @(

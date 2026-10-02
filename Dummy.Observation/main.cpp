@@ -31,6 +31,11 @@ struct Options {
     float y_m{};
     float z_m{1.5F};
     float azimuth_deg{};
+    // Precomputed PROJECT_FRAME target data. The dummy does not interpret
+    // LiDAR-local coordinates or apply sensor/mount calibration.
+    float target_x_m{100.0F};
+    float target_y_m{20.0F};
+    float target_z_m{10.0F};
     float vx_mps{};
     float vy_mps{};
     float vz_mps{};
@@ -95,6 +100,9 @@ Options parse_options(const int argc, char* argv[]) {
         else if (name == "--y") options.y_m = finite_float(value, "y");
         else if (name == "--z") options.z_m = finite_float(value, "z");
         else if (name == "--azimuth") options.azimuth_deg = finite_float(value, "azimuth");
+        else if (name == "--target-x") options.target_x_m = finite_float(value, "target x");
+        else if (name == "--target-y") options.target_y_m = finite_float(value, "target y");
+        else if (name == "--target-z") options.target_z_m = finite_float(value, "target z");
         else if (name == "--vx") options.vx_mps = finite_float(value, "vx");
         else if (name == "--vy") options.vy_mps = finite_float(value, "vy");
         else if (name == "--vz") options.vz_mps = finite_float(value, "vz");
@@ -230,13 +238,8 @@ int main(int argc, char* argv[]) {
                         std::chrono::milliseconds(options.heartbeat_interval_ms);
                 }
                 if (steady_now >= next_target) {
-                    const auto elapsed_s = std::chrono::duration<double>(
-                        steady_now - started).count();
                     send(transport, asset.target(
-                        1,
-                        static_cast<float>(100.0 + options.vx_mps * elapsed_s),
-                        static_cast<float>(20.0 + options.vy_mps * elapsed_s),
-                        static_cast<float>(10.0 + options.vz_mps * elapsed_s),
+                        1, options.target_x_m, options.target_y_m, options.target_z_m,
                         options.vx_mps, options.vy_mps, options.vz_mps,
                         options.velocity_valid, 0.95F, now), target_endpoint);
                     next_target = steady_now +
