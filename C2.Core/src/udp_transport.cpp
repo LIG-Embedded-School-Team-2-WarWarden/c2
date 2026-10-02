@@ -51,7 +51,8 @@ UdpTransport::~UdpTransport() { stop(); }
 
 void UdpTransport::start() {
     std::lock_guard lock(lifecycle_mutex_);
-    if (running_) throw std::logic_error("UDP transport is already running");
+    if (running_ || receiver_.joinable())
+        throw std::logic_error("UDP transport must be stopped before starting");
 
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
@@ -126,8 +127,13 @@ void UdpTransport::send(
         native_socket(socket_value), reinterpret_cast<const char*>(bytes.data()),
         static_cast<int>(bytes.size()), 0, reinterpret_cast<const sockaddr*>(&address),
         sizeof(address));
-    if (sent == SOCKET_ERROR || static_cast<std::size_t>(sent) != bytes.size())
+    if (sent == SOCKET_ERROR || static_cast<std::size_t>(sent) != bytes.size()) {
+        ++send_errors_;
+        last_socket_error_.store(sent == SOCKET_ERROR ? WSAGetLastError() : 0);
         throw std::runtime_error("failed to send UDP datagram");
+    }
+    ++sent_datagrams_;
+    sent_bytes_ += bytes.size();
 }
 
 Endpoint UdpTransport::local_endpoint() const {
@@ -161,15 +167,30 @@ void UdpTransport::receive_loop() noexcept {
             if (!running_) break;
             const auto error = WSAGetLastError();
             if (error == WSAETIMEDOUT || error == WSAEWOULDBLOCK) continue;
+            ++receive_errors_;
+            last_socket_error_.store(error);
+            // UDP ICMP port-unreachable and oversized packets are per-datagram
+            // failures, not a reason to kill a long-lived receive socket.
+            if (error == WSAECONNRESET || error == WSAEMSGSIZE) continue;
             break;
         }
 
-        std::vector<std::byte> datagram(buffer.begin(), buffer.begin() + received);
+        ++received_datagrams_;
+        received_bytes_ += received;
         try {
+            std::vector<std::byte> datagram(buffer.begin(), buffer.begin() + received);
             handler_(std::move(datagram), endpoint_from(source_address));
         } catch (...) {
+            ++handler_errors_;
             // A consumer failure must not terminate the process or the receive thread.
         }
     }
+    running_.store(false);
+}
+
+UdpTransportStats UdpTransport::stats() const noexcept {
+    return {received_datagrams_.load(), received_bytes_.load(), sent_datagrams_.load(),
+        sent_bytes_.load(), receive_errors_.load(), send_errors_.load(),
+        handler_errors_.load(), last_socket_error_.load()};
 }
 }  // namespace c2

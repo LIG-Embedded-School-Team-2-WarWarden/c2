@@ -5,6 +5,11 @@ MFS 시연 체계의 C++20 기반 통제소 서버다. 임의 개수의 관측·
 타격 자산을 자동 또는 수동으로 할당한다. UDP/Protobuf v3 메시지 계약은
 `protocol/mfs.proto`, 설계 결정은 `docs/decisions/`에서 관리한다.
 
+서버 개발 포트폴리오 관점의 빠른 탐색은 [포트폴리오 안내](docs/portfolio/README.md)를
+참고한다. 설계 선택·장애 경계·검증 근거와 5분 데모를 정리했다.
+[운영 절차](docs/operations.md)와 [재현 가능한 측정](docs/portfolio/benchmark.md)도 제공한다.
+
+
 ## 좌표계 책임
 
 1. 관측 자산은 센서 로컬 좌표를 `PROJECT_FRAME` 월드좌표로 변환한다.
@@ -91,6 +96,8 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 | 옵션 | 기본값 | 의미 |
 |---|---:|---|
 | `--asset-port` | 5000 | 동적 자산 공용 수신 포트 |
+| `--ingress-queue-capacity` | 1024 | 공용 수신 큐 대기 packet 수 상한 |
+| `--ingress-queue-bytes` | 4194304 | 공용 수신 큐 대기 payload bytes 상한 |
 | `--target-validity-ms` | 2000 | 표적/전역 트랙 유효시간 |
 | `--max-targets` | 256 | 전체 표적/트랙 상한 |
 | `--max-tracks-per-observer` | 64 | 관측 자산 하나의 트랙 상한 |
@@ -139,6 +146,7 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 | `stop EFFECTOR_ID` | 보존 Endpoint를 포함해 특정 타격 자산 정지 |
 | `estop EFFECTOR_ID` / `estop-all` | 특정/전체 알려진 타격 자산 비상정지 |
 | `status` | 자산·트랙·할당·pending 명령 요약 |
+| `metrics` | 공용 UDP·용량 제한 수신 큐·송신·주기 worker 지표 |
 | `errors` | 자산이 송신한 오류 이력 조회 |
 | `outcomes` | 완료·거부·실패·만료·재시도 소진·세션 종료 결과 조회 |
 | `events` | 등록·인증·Endpoint/session·상태 갱신 거부 이벤트 조회 |

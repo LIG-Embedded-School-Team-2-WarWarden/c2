@@ -9,6 +9,7 @@ set(C2_CORE_SOURCES
     C2.Core/src/attack_command_service.cpp
     C2.Core/src/asset_registry.cpp
     C2.Core/src/asset_assignment.cpp
+    C2.Core/src/datagram_processor.cpp
     C2.Core/src/connection_monitor.cpp
     C2.Core/src/command_tracker.cpp
     C2.Core/src/dummy_assets.cpp
@@ -58,3 +59,9 @@ target_link_libraries(c2_tests PRIVATE c2_core GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(c2_tests)
+
+option(C2_BUILD_BENCHMARKS "Build reproducible runtime microbenchmark" OFF)
+if(C2_BUILD_BENCHMARKS)
+    add_executable(c2_benchmark benchmarks/runtime_benchmark.cpp)
+    target_link_libraries(c2_benchmark PRIVATE c2_core)
+endif()

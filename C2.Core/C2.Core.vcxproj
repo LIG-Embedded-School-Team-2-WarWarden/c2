@@ -146,6 +146,7 @@
     <ClCompile Include="src\attack_command_service.cpp" />
     <ClCompile Include="src\asset_registry.cpp" />
     <ClCompile Include="src\asset_assignment.cpp" />
+    <ClCompile Include="src\datagram_processor.cpp" />
     <ClCompile Include="src\connection_monitor.cpp" />
     <ClCompile Include="src\command_tracker.cpp" />
     <ClCompile Include="src\dummy_assets.cpp" />
@@ -182,6 +183,7 @@
     <ClInclude Include="include\c2\server_runtime.hpp" />
     <ClInclude Include="include\c2\command_identity.hpp" />
     <ClInclude Include="include\c2\datagram_sender.hpp" />
+    <ClInclude Include="include\c2\datagram_processor.hpp" />
     <ClInclude Include="include\c2\routed_point_store.hpp" />
     <ClInclude Include="include\c2\runtime_types.hpp" />
     <ClInclude Include="include\c2\inbound_rejection_log.hpp" />

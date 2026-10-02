@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
             (void)runtime.ingest(data, now_us());
         };
         c2::ServerUdpIngress asset_ingress(
-            runtime, {options.bind_address, options.asset_port}, now_us);
+            runtime, {options.bind_address, options.asset_port}, now_us, options.ingress);
         c2::UdpTransport observation_status(
             {options.bind_address, options.observation_status_port}, receive);
         c2::UdpTransport targets({options.bind_address, options.target_port}, receive);
@@ -123,23 +123,30 @@ int main(int argc, char* argv[]) {
         effector_status.start();
 
         const auto started_at = std::chrono::steady_clock::now();
+        std::atomic<std::uint64_t> worker_errors{};
         std::jthread heartbeat_worker([&](const std::stop_token stop) {
             auto next_heartbeat = std::chrono::steady_clock::now();
             while (!stop.stop_requested()) {
                 const auto now = now_us();
                 const auto steady_now = std::chrono::steady_clock::now();
-                if (steady_now >= next_heartbeat) {
-                    const auto uptime_ms = static_cast<std::uint64_t>(
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                            steady_now - started_at).count());
-                    runtime.send_heartbeats(now, uptime_ms);
-                    next_heartbeat = steady_now +
-                        std::chrono::milliseconds(options.heartbeat_interval_ms);
+                try {
+                    if (steady_now >= next_heartbeat) {
+                        const auto uptime_ms = static_cast<std::uint64_t>(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                steady_now - started_at).count());
+                        next_heartbeat = steady_now +
+                            std::chrono::milliseconds(options.heartbeat_interval_ms);
+                        runtime.send_heartbeats(now, uptime_ms);
+                    }
+                    const auto retries = runtime.retry_unacknowledged(now);
+                    if (retries.exhausted != 0)
+                        std::cerr << "command acknowledgement retry exhausted: "
+                                  << retries.exhausted << '\n';
+                } catch (...) {
+                    const auto failures = ++worker_errors;
+                    if (failures == 1 || failures % 64 == 0)
+                        std::cerr << "periodic worker failure count=" << failures << '\n';
                 }
-                const auto retries = runtime.retry_unacknowledged(now);
-                if (retries.exhausted != 0)
-                    std::cerr << "command acknowledgement retry exhausted: "
-                              << retries.exhausted << '\n';
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         });
@@ -150,7 +157,7 @@ int main(int argc, char* argv[]) {
                      "obs-home OBS_ID, assign TRACK_ID [EFFECTOR_ID], unassign TRACK_ID, "
                      "point TRACK_ID, arm TRACK_ID, start TRACK_ID MS, "
                      "stop EFFECTOR_ID, estop EFFECTOR_ID, estop-all, status, "
-                     "errors, outcomes, events, quit\n";
+                     "errors, outcomes, events, metrics, quit\n";
         std::string line;
         while (std::cout << "> " && std::getline(std::cin, line)) {
             const auto parsed = c2::parse_console_command(line);
@@ -345,6 +352,34 @@ int main(int argc, char* argv[]) {
                                   << " command=" << outcome.key.command_id
                                   << " state=" << outcome_name(outcome.state)
                                   << " ended_us=" << outcome.ended_at_us << '\n';
+                    break;
+                }
+                case c2::ConsoleCommandKind::metrics: {
+                    const auto queue = asset_ingress.processing_stats();
+                    const auto udp = asset_ingress.transport_stats();
+                    const auto sent = sender.stats();
+                    std::cout << "metrics rx_datagrams=" << udp.received_datagrams
+                              << " rx_bytes=" << udp.received_bytes
+                              << " rx_errors=" << udp.receive_errors
+                              << " rx_last_socket_error=" << udp.last_socket_error
+                              << " rx_handler_errors=" << udp.handler_errors
+                              << " ingress_running=" << asset_ingress.running()
+                              << " queue_accepted=" << queue.accepted
+                              << " queue_processed=" << queue.processed
+                              << " queue_depth=" << queue.queued_datagrams
+                              << " queue_bytes=" << queue.queued_bytes
+                              << " queue_high_water=" << queue.high_water_datagrams
+                              << " queue_byte_high_water=" << queue.high_water_bytes
+                              << " queue_wait_max_us=" << queue.maximum_queue_wait_us
+                              << " queue_dropped_full=" << queue.dropped_full
+                              << " queue_dropped_stopped=" << queue.dropped_stopped
+                              << " queue_handler_errors=" << queue.handler_errors
+                              << " tx_datagrams=" << sent.sent_datagrams
+                              << " tx_bytes=" << sent.sent_bytes
+                              << " tx_last_socket_error=" << sent.last_socket_error
+                              << " tx_errors=" << sent.send_errors
+                              << " worker_errors=" << worker_errors.load()
+                              << " pending=" << runtime.pending_command_count() << '\n';
                     break;
                 }
                 case c2::ConsoleCommandKind::events: {

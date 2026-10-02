@@ -94,3 +94,11 @@ TEST(ServerConsoleTest, RejectsMissingExtraMalformedAndZeroArguments) {
     }
 }
 }  // namespace
+
+TEST(ServerConsoleTest, ParsesMetricsAndRejectsArguments) {
+    const auto result = c2::parse_console_command("metrics");
+    ASSERT_TRUE(std::holds_alternative<c2::ConsoleCommand>(result));
+    EXPECT_EQ(std::get<c2::ConsoleCommand>(result).kind, c2::ConsoleCommandKind::metrics);
+    EXPECT_TRUE(std::holds_alternative<c2::ConsoleParseError>(
+        c2::parse_console_command("metrics extra")));
+}
