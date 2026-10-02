@@ -28,3 +28,19 @@ CPU 점유와 전원 상태, 빌드 옵션, 변경 여부를 함께 기록한다
 
 수신 큐 포화는 `DatagramProcessorTest.BoundsQueueBytesAndCountAndDrainsInOrder`로
 결정적으로 재현한다. 실제 UDP 시나리오는 별도 smoke이며 이 측정의 성능 수치와 합치지 않는다.
+
+## 보관한 실제 표본
+
+[2026-10-02 결과 JSON](measurements/2026-10-02-runtime.json)은 코드 커밋
+`5e4a05cfd93d633b31b244f1ae887bdc4fab72ec`의 clean working tree에서 측정했다.
+Windows Release, 논리 프로세서 8개, 16 observers / 512 tracks / 50000 samples를
+3회 실행했고 각 실행의 protocol 거부는 0이다. 환경의 상세 정보는 JSON에 있다.
+
+| 실행 | messages/s | p50 µs | p95 µs | p99 µs |
+|---|---:|---:|---:|---:|
+| 1 | 180,516 | 5.2 | 6.3 | 7.4 |
+| 2 | 167,801 | 5.5 | 7.2 | 8.0 |
+| 3 | 175,540 | 5.5 | 6.3 | 7.5 |
+
+이 표본은 로컬 in-process 측정이다. 단일 최고값을 전체 시스템 처리량으로 표현하지
+않고 반복 실행의 변동과 측정 범위를 함께 제시한다.
