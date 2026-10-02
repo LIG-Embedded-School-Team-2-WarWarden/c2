@@ -2,6 +2,7 @@
 
 #include "c2/pointing.hpp"
 #include "c2/protocol.hpp"
+#include "c2/command_identity.hpp"
 #include "c2/state_store.hpp"
 
 #include <cstdint>
@@ -36,12 +37,14 @@ public:
 
     [[nodiscard]] EffectorCommandResult create_for_target(
         std::uint64_t target_id, std::uint64_t now_us);
+    [[nodiscard]] EffectorCommandResult create_for_target(
+        std::uint64_t target_id, const TargetCoordinate& target,
+        const AssetPose& pose, const PointingLimits& limits, std::uint64_t now_us);
 
 private:
     StateStore& state_;
     EffectorCommandConfig config_;
     std::mutex mutex_;
-    std::uint32_t next_command_id_;
-    std::uint32_t next_sequence_;
+    CommandIdentity identity_;
 };
 }  // namespace c2

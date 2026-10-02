@@ -1,10 +1,19 @@
 #pragma once
 
 #include "c2/asset_registry.hpp"
+#include "c2/runtime_types.hpp"
+#include "c2/command_identity.hpp"
+#include "c2/routed_point_store.hpp"
+#include "c2/inbound_rejection_log.hpp"
+#include "c2/track_update_publisher.hpp"
+#include "c2/inbound_message_router.hpp"
+#include "c2/heartbeat_publisher.hpp"
+#include "c2/assignment_coordinator.hpp"
 #include "c2/asset_assignment.hpp"
 #include "c2/attack_command_service.hpp"
 #include "c2/connection_monitor.hpp"
 #include "c2/command_tracker.hpp"
+#include "c2/legacy_command_tracker.hpp"
 #include "c2/effector_command_service.hpp"
 #include "c2/observation_command_service.hpp"
 #include "c2/state_store.hpp"
@@ -15,13 +24,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <deque>
 #include <mutex>
 #include <optional>
 #include <span>
 #include <variant>
 #include <vector>
-#include <unordered_map>
 
 namespace c2 {
 struct ServerRuntimeConfig {
@@ -43,52 +50,14 @@ struct ServerRuntimeConfig {
     std::size_t maximum_inbound_rejections{128};
 };
 
-enum class InboundRejectionCategory {
-    invalid_packet,
-    unsupported_message,
-    registration,
-    authentication,
-    state_update,
-};
-
-struct InboundRejection {
-    std::uint64_t event_id{};
-    InboundRejectionCategory category{InboundRejectionCategory::invalid_packet};
-    MessageKind message_kind{MessageKind::unspecified};
-    std::uint64_t asset_id{};
-    std::uint64_t session_id{};
-    AssetRegistryResult reason{AssetRegistryResult::invalid};
-    std::uint64_t occurred_at_us{};
-};
-
-struct CommandRetryResult {
-    std::size_t resent{};
-    std::size_t exhausted{};
-};
-
-struct EmergencyStopResult {
-    std::size_t assets{};
-    std::size_t datagrams{};
-};
-
-enum class InboundResult { accepted, invalid_packet, unsupported_message, rejected };
-enum class DispatchError {
-    connection_unavailable,
-    pose_resynchronization_required,
-    command_rejected,
-};
-
-using ObservationDispatchResult =
-    std::variant<ObservationTurretCommand, DispatchError>;
-using EffectorDispatchResult = std::variant<EffectorTurretCommand, DispatchError>;
-using AttackDispatchResult = std::variant<AttackCommand, DispatchError>;
-
 class ServerRuntime final {
 public:
-    using DatagramSender =
-        std::function<void(std::span<const std::byte>, const Endpoint&)>;
+    using DatagramSender = c2::DatagramSender;
 
     ServerRuntime(ServerRuntimeConfig config, DatagramSender sender);
+    [[nodiscard]] DevelopmentPoseDispatchResult set_development_pose(
+        std::uint64_t asset_id, float x_m, float y_m, float z_m,
+        float azimuth_deg, std::uint64_t now_us);
 
     [[nodiscard]] InboundResult ingest(
         std::span<const std::byte> datagram, std::uint64_t received_at_us);
@@ -146,26 +115,9 @@ private:
     void dispatch_tracked(
         const Message& message, const Endpoint& endpoint,
         ComponentId acknowledgement_source, std::uint64_t now_us);
-    void acknowledge_delivery(const CommandAck& acknowledgement);
-    [[nodiscard]] std::vector<EffectorCandidate> effector_candidates(
-        std::uint64_t now_us);
-    void invalidate_unsafe_assignment(
-        const TrackSnapshot& track,
-        const std::vector<EffectorCandidate>& candidates,
-        std::uint64_t now_us);
     [[nodiscard]] AttackDispatchResult dispatch_safety_command(
         const AssetSnapshot& asset, AttackAction action,
         std::uint32_t repetitions, std::uint64_t now_us);
-    void assign_effector_identity(EffectorTurretCommand& command);
-    void assign_effector_identity(AttackCommand& command);
-    void dispatch_track_update(
-        const TrackSnapshot& track, const AssetSnapshot& asset,
-        std::uint64_t now_us);
-    void record_inbound_rejection(
-        InboundRejectionCategory category, MessageKind message_kind,
-        const MessageHeader* header, AssetRegistryResult reason,
-        std::uint64_t occurred_at_us);
-
     ServerRuntimeConfig config_;
     DatagramSender sender_;
     AssetRegistry registry_;
@@ -178,32 +130,15 @@ private:
     ObservationCommandService observation_commands_;
     EffectorCommandService effector_commands_;
     AttackCommandService attack_commands_;
-    std::mutex effector_identity_mutex_;
-    std::uint32_t next_effector_command_id_;
-    std::uint32_t next_effector_sequence_;
-    std::uint32_t next_target_update_sequence_{1};
-    struct RoutedPoint {
-        std::uint64_t asset_id{};
-        std::uint64_t session_id{};
-        EffectorTurretCommand command;
-    };
-    mutable std::mutex routed_point_mutex_;
-    std::unordered_map<std::uint64_t, RoutedPoint> routed_points_;
-    std::mutex heartbeat_mutex_;
-    std::uint32_t next_observation_heartbeat_sequence_{1};
-    std::uint32_t next_effector_heartbeat_sequence_{1};
-    struct PendingCommand {
-        std::vector<std::byte> datagram;
-        Endpoint endpoint;
-        std::uint64_t last_sent_us{};
-        std::uint32_t attempts{};
-    };
-    static std::uint64_t pending_key(ComponentId source, std::uint32_t command_id) noexcept;
-    mutable std::mutex pending_mutex_;
-    std::unordered_map<std::uint64_t, PendingCommand> pending_commands_;
+    CommandIdentity effector_identity_;
+    RoutedPointStore routed_points_;
+    TrackUpdatePublisher track_updates_;
+    HeartbeatPublisher heartbeats_;
+    AssignmentCoordinator assignment_coordinator_;
+    LegacyCommandTracker legacy_commands_;
     std::mutex asset_lifecycle_mutex_;
-    mutable std::mutex inbound_rejection_mutex_;
-    std::deque<InboundRejection> inbound_rejections_;
-    std::uint64_t next_inbound_rejection_id_{1};
+    InboundRejectionLog rejection_log_;
+    LegacyMessageRouter legacy_inbound_;
+    AssetMessageRouter asset_inbound_;
 };
 }  // namespace c2

@@ -17,6 +17,8 @@ set(C2_CORE_SOURCES
     C2.Core/src/pointing.cpp
     C2.Core/src/protobuf_codec.cpp
     C2.Core/src/protocol_validation.cpp
+    C2.Core/src/assignment_coordinator.cpp
+    C2.Core/src/inbound_message_router.cpp
     C2.Core/src/server_runtime.cpp
     C2.Core/src/server_console.cpp
     C2.Core/src/server_options.cpp

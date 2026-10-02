@@ -242,6 +242,19 @@ std::vector<std::byte> encode_message(const AssetPose& message) {
     return output;
 }
 
+std::vector<std::byte> encode_message(const DevelopmentPoseCommand& message) {
+    std::vector<std::byte> output;
+    put_header(output, message);
+    put_uint(output, 2, message.command_id);
+    put_enum(output, 3, message.coordinate_frame);
+    put_float(output, 4, message.x_m);
+    put_float(output, 5, message.y_m);
+    put_float(output, 6, message.z_m);
+    put_float(output, 7, message.azimuth_deg);
+    put_uint(output, 8, message.valid_until_us);
+    return output;
+}
+
 std::vector<std::byte> encode_message(const TargetCoordinate& message) {
     std::vector<std::byte> output;
     put_header(output, message);
@@ -488,6 +501,30 @@ bool decode_message(const std::span<const std::byte> bytes, AssetPose& message) 
                 return read_float(reader, type, value.azimuth_deg);
             default:
                 return false;
+        }
+    });
+}
+
+bool decode_message(const std::span<const std::byte> bytes, DevelopmentPoseCommand& message) {
+    message.coordinate_frame = CoordinateFrame::unspecified;
+    return decode_fields(bytes, message, [](Reader& reader, const std::uint32_t field,
+        const std::uint8_t type, DevelopmentPoseCommand& value) {
+        std::uint64_t integer{};
+        switch (field) {
+            case 2:
+                if (!read_uint(reader, type, integer) || integer > UINT32_MAX) return false;
+                value.command_id = static_cast<std::uint32_t>(integer);
+                return true;
+            case 3:
+                if (!read_uint(reader, type, integer) || integer > UINT32_MAX) return false;
+                value.coordinate_frame = static_cast<CoordinateFrame>(integer);
+                return true;
+            case 4: return read_float(reader, type, value.x_m);
+            case 5: return read_float(reader, type, value.y_m);
+            case 6: return read_float(reader, type, value.z_m);
+            case 7: return read_float(reader, type, value.azimuth_deg);
+            case 8: return read_uint(reader, type, value.valid_until_us);
+            default: return false;
         }
     });
 }
@@ -892,6 +929,8 @@ bool decode_payload(
             return set_payload<AssetUnregister>(bytes, envelope);
         case MessageKind::target_track_update:
             return set_payload<TargetTrackUpdate>(bytes, envelope);
+        case MessageKind::development_pose_command:
+            return set_payload<DevelopmentPoseCommand>(bytes, envelope);
         case MessageKind::unspecified:
         default:
             return false;
@@ -923,7 +962,7 @@ DecodeResult decode(const std::span<const std::byte> bytes) {
         std::uint8_t type{};
         if (!reader.key(field, type)) return DecodeError::malformed;
         if (field >= static_cast<std::uint32_t>(MessageKind::asset_pose) &&
-            field <= static_cast<std::uint32_t>(MessageKind::target_track_update)) {
+            field <= static_cast<std::uint32_t>(MessageKind::development_pose_command)) {
             std::span<const std::byte> nested;
             if (type != wire_length_delimited || !reader.message(nested) ||
                 !decode_payload(field, nested, envelope))

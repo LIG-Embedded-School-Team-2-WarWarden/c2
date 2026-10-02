@@ -120,6 +120,7 @@
     <ClCompile Include="protobuf_codec_test.cpp" />
     <ClCompile Include="protocol_status_test.cpp" />
     <ClCompile Include="server_runtime_test.cpp" />
+    <ClCompile Include="runtime_components_test.cpp" />
     <ClCompile Include="server_console_test.cpp" />
     <ClCompile Include="server_options_test.cpp" />
     <ClCompile Include="state_store_test.cpp" />

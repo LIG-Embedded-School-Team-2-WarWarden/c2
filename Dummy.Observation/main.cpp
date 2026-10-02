@@ -24,7 +24,7 @@ struct Options {
     std::uint16_t target_port{5002};
     std::uint16_t c2_port{5000};
     std::uint64_t asset_id{};
-    std::uint64_t capabilities{c2::capability::observation_scan};
+    std::uint64_t capabilities{c2::capability::observation_scan | c2::capability::development_pose};
     std::uint64_t registration_interval_ms{1'000};
     std::uint64_t lease_ms{5'000};
     float x_m{};
@@ -172,6 +172,13 @@ int main(int argc, char* argv[]) {
             const auto received = now_us();
             if (const auto* heartbeat = std::get_if<c2::Heartbeat>(&payload)) {
                 (void)asset.observe_control_heartbeat(*heartbeat, received);
+            } else if (const auto* command = std::get_if<c2::DevelopmentPoseCommand>(&payload)) {
+                if ((options.capabilities & c2::capability::development_pose) == 0) return;
+                const auto result = asset.handle(*command, received);
+                send(*transport_ptr, result.acknowledgement, status_endpoint);
+                if (result.error_report)
+                    send(*transport_ptr, *result.error_report, status_endpoint);
+                send(*transport_ptr, asset.asset_pose(received), status_endpoint);
             } else if (const auto* command = std::get_if<c2::ObservationTurretCommand>(&payload)) {
                 const auto result = asset.handle(*command, received);
                 send(*transport_ptr, result.acknowledgement, status_endpoint);
