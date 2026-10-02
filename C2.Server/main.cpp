@@ -145,6 +145,7 @@ int main(int argc, char* argv[]) {
         });
 
         std::cout << "C2 server started. Commands: assets, targets, "
+                     "dev-pose ASSET_ID X_m Y_m Z_m AZIMUTH_DEG, "
                      "scan OBS_ID P T, observe OBS_ID P T, obs-stop OBS_ID, "
                      "obs-home OBS_ID, assign TRACK_ID [EFFECTOR_ID], unassign TRACK_ID, "
                      "point TRACK_ID, arm TRACK_ID, start TRACK_ID MS, "
@@ -178,6 +179,10 @@ int main(int argc, char* argv[]) {
                                   << " lease_us=" << asset.lease_expires_at_us
                                   << " pose=" << (asset.pose_synchronized ? "yes" : "no")
                                   << " capabilities=" << asset.capabilities;
+                        if (asset.pose)
+                            std::cout << " xyz=(" << asset.pose->x_m << ','
+                                      << asset.pose->y_m << ',' << asset.pose->z_m
+                                      << ") azimuth_deg=" << asset.pose->azimuth_deg;
                         bool first_assignment = true;
                         for (const auto& assignment : assignments) {
                             if (assignment.effector_asset_id != asset.asset_id)
@@ -222,6 +227,11 @@ int main(int argc, char* argv[]) {
                                   << " expires_us=" << track.expires_at_us << '\n';
                     break;
                 }
+                case c2::ConsoleCommandKind::development_pose:
+                    print_dispatch(runtime.set_development_pose(
+                        command.asset_id, command.x_m, command.y_m, command.z_m,
+                        command.azimuth_deg, now));
+                    break;
                 case c2::ConsoleCommandKind::scan:
                 case c2::ConsoleCommandKind::observe:
                     if (command.asset_id == 0)

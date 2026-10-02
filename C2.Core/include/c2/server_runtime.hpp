@@ -82,6 +82,7 @@ using ObservationDispatchResult =
     std::variant<ObservationTurretCommand, DispatchError>;
 using EffectorDispatchResult = std::variant<EffectorTurretCommand, DispatchError>;
 using AttackDispatchResult = std::variant<AttackCommand, DispatchError>;
+using DevelopmentPoseDispatchResult = std::variant<DevelopmentPoseCommand, DispatchError>;
 
 class ServerRuntime final {
 public:
@@ -89,6 +90,9 @@ public:
         std::function<void(std::span<const std::byte>, const Endpoint&)>;
 
     ServerRuntime(ServerRuntimeConfig config, DatagramSender sender);
+    [[nodiscard]] DevelopmentPoseDispatchResult set_development_pose(
+        std::uint64_t asset_id, float x_m, float y_m, float z_m,
+        float azimuth_deg, std::uint64_t now_us);
 
     [[nodiscard]] InboundResult ingest(
         std::span<const std::byte> datagram, std::uint64_t received_at_us);

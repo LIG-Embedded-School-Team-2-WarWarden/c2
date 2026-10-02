@@ -26,6 +26,7 @@ enum class ConsoleCommandKind {
     outcomes,
     events,
     quit,
+    development_pose,
 };
 
 struct ConsoleCommand {
@@ -36,6 +37,10 @@ struct ConsoleCommand {
     float pan_deg{};
     float tilt_deg{};
     std::uint32_t duration_ms{};
+    float x_m{};
+    float y_m{};
+    float z_m{};
+    float azimuth_deg{};
 };
 
 enum class ConsoleParseError { empty, unknown_command, invalid_arguments };

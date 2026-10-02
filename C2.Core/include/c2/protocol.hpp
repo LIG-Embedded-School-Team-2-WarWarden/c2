@@ -109,6 +109,7 @@ namespace capability {
 inline constexpr std::uint64_t observation_scan = 1ULL << 0U;
 inline constexpr std::uint64_t effector_point = 1ULL << 1U;
 inline constexpr std::uint64_t effector_attack = 1ULL << 2U;
+inline constexpr std::uint64_t development_pose = 1ULL << 3U;
 }  // namespace capability
 
 enum class MessageKind : std::uint32_t {
@@ -126,6 +127,7 @@ enum class MessageKind : std::uint32_t {
     asset_registration = 11,
     asset_unregister = 12,
     target_track_update = 13,
+    development_pose_command = 14,
 };
 
 struct MessageHeader {
@@ -294,6 +296,17 @@ struct AssetUnregister {
     std::string reason;
 };
 
+struct DevelopmentPoseCommand {
+    MessageHeader header;
+    std::uint32_t command_id{};
+    CoordinateFrame coordinate_frame{CoordinateFrame::project_frame};
+    float x_m{};
+    float y_m{};
+    float z_m{};
+    float azimuth_deg{};
+    std::uint64_t valid_until_us{};
+};
+
 using MessagePayload = std::variant<
     std::monostate,
     AssetPose,
@@ -308,7 +321,8 @@ using MessagePayload = std::variant<
     ErrorReport,
     AssetRegistration,
     AssetUnregister,
-    TargetTrackUpdate>;
+    TargetTrackUpdate,
+    DevelopmentPoseCommand>;
 
 struct Envelope {
     MessagePayload payload;

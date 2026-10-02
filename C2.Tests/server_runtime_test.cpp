@@ -3,6 +3,7 @@
 #include "c2/asset_assignment.hpp"
 #include "c2/protobuf_codec.hpp"
 #include "c2/server_runtime.hpp"
+#include "c2/dummy_assets.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -889,5 +890,46 @@ TEST(ServerRuntimeAssignmentTest, EnforcesAssignedAttackSafetyAndStopsDisconnect
         if (repeated_command_id == 0) repeated_command_id = command.command_id;
         EXPECT_EQ(command.command_id, repeated_command_id);
     }
+}
+TEST(ServerRuntimeDevelopmentPoseTest, RoutesToCurrentSessionAndWaitsForAssetReport) {
+    std::vector<std::byte> sent;
+    c2::Endpoint destination;
+    c2::ServerRuntime server(config(), [&](auto data, auto endpoint) {
+        sent.assign(data.begin(), data.end()); destination = endpoint;
+    });
+    const c2::Endpoint source{"127.0.0.1", 40000};
+    auto asset = registration(101, 9, c2::AssetRole::observation, 51101);
+    asset.capabilities |= c2::capability::development_pose;
+    ASSERT_EQ(server.ingest(bytes(asset), source, 10), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(asset, 2)), source, 12), c2::InboundResult::accepted);
+    // Initial pose is deliberately absent: the development command bootstraps it.
+    const auto dispatched = server.set_development_pose(101, 10, 20, 3, 90, 13);
+    ASSERT_TRUE(std::holds_alternative<c2::DevelopmentPoseCommand>(dispatched));
+    EXPECT_EQ(destination.address, source.address);
+    EXPECT_EQ(destination.port, 51101);
+    const auto command = std::get<c2::DevelopmentPoseCommand>(dispatched);
+    EXPECT_EQ(command.header.session_id, 9U);
+    EXPECT_FALSE(server.assets(13).front().pose.has_value());
+    c2::DummyObservationAsset dummy(pose(asset, 3, 0), {-180, 180, -90, 90});
+    const auto decoded = c2::protobuf::decode(sent);
+    ASSERT_TRUE(std::holds_alternative<c2::Envelope>(decoded));
+    const auto reply = dummy.handle(std::get<c2::DevelopmentPoseCommand>(
+        std::get<c2::Envelope>(decoded).payload), 14);
+    ASSERT_EQ(server.ingest(bytes(reply.acknowledgement), source, 14), c2::InboundResult::accepted);
+    EXPECT_EQ(server.pending_command_count(), 0U);
+    auto reported = dummy.asset_pose(15);
+    ASSERT_EQ(server.ingest(bytes(reported), source, 15), c2::InboundResult::accepted);
+    EXPECT_FLOAT_EQ(server.assets(15).front().pose->x_m, 10);
+    const auto next_command = server.command_observation(101, c2::ObservationTurretCommandType::stop, 0, 0, 16);
+    ASSERT_TRUE(std::holds_alternative<c2::ObservationTurretCommand>(next_command));
+    EXPECT_NE(std::get<c2::ObservationTurretCommand>(next_command).command_id, command.command_id);
+    EXPECT_EQ(dummy.handle(std::get<c2::ObservationTurretCommand>(next_command), 17).acknowledgement.result,
+              c2::CommandResult::completed);
+    EXPECT_TRUE(std::holds_alternative<c2::DispatchError>(server.set_development_pose(999, 0, 0, 0, 0, 18)));
+    EXPECT_TRUE(std::holds_alternative<c2::DispatchError>(server.set_development_pose(101, 0, 0, 0, 360, 18)));
+    auto unsupported = registration(102, 1, c2::AssetRole::observation, 51102);
+    ASSERT_EQ(server.ingest(bytes(unsupported), source, 18), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(unsupported, 2)), source, 18), c2::InboundResult::accepted);
+    EXPECT_TRUE(std::holds_alternative<c2::DispatchError>(server.set_development_pose(102, 0, 0, 0, 0, 19)));
 }
 }  // namespace

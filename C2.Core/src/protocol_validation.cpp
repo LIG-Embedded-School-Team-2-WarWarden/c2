@@ -166,6 +166,25 @@ ValidationResult validate(const AssetPose& pose) {
     return result;
 }
 
+ValidationResult validate(const DevelopmentPoseCommand& command) {
+    auto result = validate_header(command.header, ComponentId::command_and_control,
+                                  command.header.destination_id);
+    if (command.header.destination_id != ComponentId::observation_asset &&
+        command.header.destination_id != ComponentId::effector_asset)
+        result.errors.emplace_back("development pose destination must be an asset");
+    auto pose_header = command.header;
+    pose_header.source_id = command.header.destination_id;
+    pose_header.destination_id = ComponentId::command_and_control;
+    append(result, validate(AssetPose{pose_header, command.coordinate_frame,
+                                    command.x_m, command.y_m, command.z_m,
+                                    command.azimuth_deg}));
+    if (command.command_id == 0)
+        result.errors.emplace_back("command_id must be non-zero");
+    if (command.valid_until_us <= command.header.timestamp_us)
+        result.errors.emplace_back("valid_until_us must follow timestamp_us");
+    return result;
+}
+
 ValidationResult validate(const TargetCoordinate& target) {
     ValidationResult result = validate_header(
         target.header, ComponentId::observation_asset, ComponentId::command_and_control);

@@ -27,6 +27,15 @@ ConsoleParseResult parse_console_command(const std::string_view line) {
     else if (name == "events") command.kind = ConsoleCommandKind::events;
     else if (name == "quit") command.kind = ConsoleCommandKind::quit;
     else if (name == "estop-all") command.kind = ConsoleCommandKind::emergency_stop_all;
+    else if (name == "dev-pose") {
+        command.kind = ConsoleCommandKind::development_pose;
+        if (!(input >> command.asset_id >> command.x_m >> command.y_m >>
+              command.z_m >> command.azimuth_deg) || !positive(command.asset_id) ||
+            !std::isfinite(command.x_m) || !std::isfinite(command.y_m) ||
+            !std::isfinite(command.z_m) || !std::isfinite(command.azimuth_deg) ||
+            command.azimuth_deg < 0 || command.azimuth_deg >= 360)
+            return ConsoleParseError::invalid_arguments;
+    }
     else if (name == "scan" || name == "observe") {
         command.kind = name == "scan" ? ConsoleCommandKind::scan
                                        : ConsoleCommandKind::observe;
