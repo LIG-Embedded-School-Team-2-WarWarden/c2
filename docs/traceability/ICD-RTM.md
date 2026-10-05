@@ -1,7 +1,7 @@
 # C2 구현·시험 추적표
 
 - 기준 문서: `DOC-REQ`, `MFS-ICD-001`
-- 갱신일: 2026-09-30
+- 갱신일: 2026-10-05
 - 대상: CSCI-02 C2 서버와 교육용 다중 더미 자산
 
 ## C2 소프트웨어 요구사항
@@ -21,6 +21,7 @@
 | SW-C2-011 운용 상태·결과 조회 | `assets`, `status`, `errors`, `outcomes`, `events` | assignment/outcome/수신 거부 snapshot과 parser | 코어/콘솔 완료, GUI 미정 |
 | SW-C2-012 런타임 설정 | `ServerOptions`, `make_server_runtime_config` | 기본값 일관성, 0/overflow/상호모순 거부 | 완료 |
 | SW-C2-013 더미 다중 자산 | 이동 관측 더미, 고주기 타격 제어 루프 | 2 관측 + 3 타격 실제 프로세스 연속 추적 smoke | 완료 |
+| SW-C2-014 개발용 위치·방위 설정 | `dev-pose`, `DevelopmentPoseCommand`, capability bit 3, 자산 적용·Pose 재보고 | codec/입력 경계, 두 역할 적용·중복·만료·세션·동작 중 거부, 라우팅·ACK·초기화 | 코어/콘솔·더미 완료, 실제 장비 수신 구현 필요 |
 
 ## ICD 인터페이스 시험
 
@@ -37,7 +38,7 @@
 | ICD-TC-009 | C2 라우팅→타격 dead reckoning→상대좌표·Pan/Tilt | 통과 |
 | ICD-TC-010 | 자동/수동 할당과 독점 자산 이중할당 방지 | 통과 |
 | ICD-TC-011 | 탐지→자동 할당→상태 스트림→ARM→START→출력 종료 후 추적 | 통과 |
-| ICD-TC-012 | ACK 진행상태·중복·timeout·재전송·소진 | 통과 |
+| ICD-TC-012 | ACK 진행상태·중복·timeout·재전송·소진, 수락 기한과 완료 기한 분리, 늦은 ACK 거부 | 통과 |
 | ICD-TC-013 | session 교체 pending 종료와 늦은 패킷 거부 | 통과 |
 | ICD-TC-014 | 특정/전체 STOP·ESTOP와 반복 ID 불변 | 통과 |
 | ICD-TC-015 | 관측 SCAN/STOP/HOME 상태전이 | 통과 |
@@ -45,6 +46,7 @@
 | ICD-TC-017 | 잘못된 실행 설정과 용량 상한 | 통과 |
 | ICD-TC-018 | 관측 2 + 타격 3 UDP, 이동표적 연속 추적, 자산 재시작 session 교체 | 통과 |
 | ICD-TC-019 | 관측 자산의 LiDAR 로컬 위치·속도→PROJECT_FRAME 변환 및 장착 오프셋 반영 | 실제 관측 HW/SW 필요 |
+| ICD-TC-020 | `DevelopmentPoseTest`, `ServerRuntimeDevelopmentPoseTest`, 콘솔 parser 및 두 역할 실제 UDP 설정·재보고 smoke; 계약은 `docs/icd/development-pose-command.md` | 통과 |
 
 ## 의도적으로 남은 항목
 

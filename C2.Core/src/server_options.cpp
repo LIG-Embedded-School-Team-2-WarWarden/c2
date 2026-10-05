@@ -74,6 +74,8 @@ ServerOptions parse_server_options(
         else if (name == "--observation-command-port") options.observation_command_port = port(value);
         else if (name == "--effector-command-port") options.effector_command_port = port(value);
         else if (name == "--effector-status-port") options.effector_status_port = port(value);
+        else if (name == "--ingress-queue-capacity") options.ingress.maximum_queued_datagrams = positive_number<std::size_t>(value, "ingress queue capacity");
+        else if (name == "--ingress-queue-bytes") options.ingress.maximum_queued_bytes = positive_number<std::size_t>(value, "ingress queue bytes");
         else if (name == "--asset-port") options.asset_port = port(value);
         else if (name == "--target-validity-ms") options.target_validity_ms = positive_number<std::uint64_t>(value, "target validity");
         else if (name == "--max-targets") options.maximum_targets = positive_number<std::size_t>(value, "maximum target count");

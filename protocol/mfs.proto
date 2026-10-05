@@ -189,6 +189,9 @@ message ObservationStatus {
 // HOME returns to the reference position, STOP halts motion and search,
 // ABSOLUTE_ANGLE points without starting search, and SCAN points to the
 // requested center angle before starting the configured search pattern.
+// Command valid_until_us is the receive/acceptance deadline, not a motion
+// completion deadline. C2 switches to its completion timeout after the first
+// progress ACK. TargetTrackUpdate freshness has separate semantics.
 message ObservationTurretCommand {
   MessageHeader header = 1;
   uint32 command_id = 2;
@@ -298,5 +301,20 @@ message Envelope {
     AssetRegistration asset_registration = 11;
     AssetUnregister asset_unregister = 12;
     TargetTrackUpdate target_track_update = 13;
+    DevelopmentPoseCommand development_pose_command = 14;
   }
+}
+
+// Development-only installation pose override; support is capability bit 3.
+// Values are PROJECT_FRAME meters and +X toward +Y degrees in [0, 360).
+// Applied atomically while idle, then reported using AssetPose and CommandAck.
+message DevelopmentPoseCommand {
+  MessageHeader header = 1;
+  uint32 command_id = 2;
+  CoordinateFrame coordinate_frame = 3;
+  float x_m = 4;
+  float y_m = 5;
+  float z_m = 6;
+  float azimuth_deg = 7;
+  uint64 valid_until_us = 8;
 }

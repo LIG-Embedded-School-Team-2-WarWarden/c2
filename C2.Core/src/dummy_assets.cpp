@@ -104,6 +104,37 @@ ProcessedCommand DummyObservationAsset::handle(
     return {response, false, std::move(report)};
 }
 
+ProcessedCommand DummyObservationAsset::handle(
+    const DevelopmentPoseCommand& command, const std::uint64_t now_us) {
+    std::lock_guard lock(mutex_);
+    if (command.header.asset_id != asset_id_ || command.header.session_id != session_id_ ||
+        command.header.destination_id != ComponentId::observation_asset)
+        return {ack(command.command_id, CommandResult::rejected,
+                    dummy_error::invalid_command, now_us), false, std::nullopt};
+    if (const auto found = results_.find(command.command_id); found != results_.end())
+        return {found->second, true, std::nullopt};
+    if (latest_command_id_ && !newer_command(command.command_id, *latest_command_id_))
+        return {ack(command.command_id, CommandResult::rejected,
+                    dummy_error::duplicate_command, now_us), true, std::nullopt};
+    std::uint32_t code{};
+    if (!validate(command).valid()) code = dummy_error::invalid_command;
+    else if (now_us >= command.valid_until_us) code = dummy_error::expired_command;
+    else if (status_.state != ObservationState::standby || status_.turret_active ||
+             status_.lidar_active) code = dummy_error::invalid_state;
+    if (code == 0) {
+        pose_.x_m = command.x_m;
+        pose_.y_m = command.y_m;
+        pose_.z_m = command.z_m;
+        pose_.azimuth_deg = command.azimuth_deg;
+    }
+    const auto response = ack(command.command_id,
+        code == 0 ? CommandResult::completed : CommandResult::rejected, code, now_us);
+    remember(command.command_id, response);
+    return {response, false, code == 0 ? std::nullopt : std::optional<ErrorReport>{
+        error(code, ErrorSeverity::warning, command.command_id,
+              "development pose rejected", now_us)}};
+}
+
 MessageHeader DummyObservationAsset::header(const std::uint64_t now_us) {
     auto value = MessageHeader{protocol_version, sequence_, now_us,
                                ComponentId::observation_asset,
@@ -436,6 +467,42 @@ void DummyEffectorAsset::safe_stop(
         reason == TrackingStopReason::emergency_stop)
         target_update_.reset();
 }
+ProcessedCommand DummyEffectorAsset::handle(
+    const DevelopmentPoseCommand& command, const std::uint64_t now_us) {
+    std::lock_guard lock(mutex_);
+    if (command.header.asset_id != asset_id_ || command.header.session_id != session_id_ ||
+        command.header.destination_id != ComponentId::effector_asset)
+        return {ack(command.command_id, CommandResult::rejected,
+                    dummy_error::invalid_command, now_us), false, std::nullopt};
+    if (const auto found = results_.find(command.command_id); found != results_.end())
+        return {found->second, true, std::nullopt};
+    if (latest_command_id_ && !newer_command(command.command_id, *latest_command_id_))
+        return {ack(command.command_id, CommandResult::rejected,
+                    dummy_error::duplicate_command, now_us), true, std::nullopt};
+    std::uint32_t code{};
+    if (!validate(command).valid()) code = dummy_error::invalid_command;
+    else if (now_us >= command.valid_until_us) code = dummy_error::expired_command;
+    else if (status_.state != EffectorState::standby || status_.attack_armed ||
+             status_.attack_active || status_.automatic_tracking_active)
+        code = dummy_error::invalid_state;
+    if (code == 0) {
+        pose_.x_m = command.x_m;
+        pose_.y_m = command.y_m;
+        pose_.z_m = command.z_m;
+        pose_.azimuth_deg = command.azimuth_deg;
+        target_update_.reset();
+        current_target_id_ = 0;
+        status_.aligned = false;
+        status_.tracking_track_id = 0;
+    }
+    const auto response = ack(command.command_id,
+        code == 0 ? CommandResult::completed : CommandResult::rejected, code, now_us);
+    remember(command.command_id, response);
+    return {response, false, code == 0 ? std::nullopt : std::optional<ErrorReport>{
+        error(code, ErrorSeverity::warning, command.command_id,
+              "development pose rejected", now_us)}};
+}
+
 MessageHeader DummyEffectorAsset::header(const std::uint64_t now_us) {
     auto value = MessageHeader{protocol_version, sequence_, now_us,
                                ComponentId::effector_asset,

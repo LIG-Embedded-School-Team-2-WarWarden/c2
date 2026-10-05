@@ -24,6 +24,17 @@ struct UdpConfig {
     std::uint16_t listen_port{};
 };
 
+struct UdpTransportStats {
+    std::uint64_t received_datagrams{};
+    std::uint64_t received_bytes{};
+    std::uint64_t sent_datagrams{};
+    std::uint64_t sent_bytes{};
+    std::uint64_t receive_errors{};
+    std::uint64_t send_errors{};
+    std::uint64_t handler_errors{};
+    int last_socket_error{};
+};
+
 class UdpTransport final {
 public:
     using ReceiveHandler = std::function<void(std::vector<std::byte>, Endpoint)>;
@@ -40,6 +51,7 @@ public:
     void stop() noexcept;
     void send(std::span<const std::byte> bytes, const Endpoint& destination);
     [[nodiscard]] Endpoint local_endpoint() const;
+    [[nodiscard]] UdpTransportStats stats() const noexcept;
     [[nodiscard]] bool running() const noexcept { return running_.load(); }
 
 private:
@@ -56,5 +68,9 @@ private:
     std::atomic<std::uintptr_t> socket_{invalid_socket};
     std::thread receiver_;
     bool winsock_initialized_{};
+    std::atomic<std::uint64_t> received_datagrams_{}, received_bytes_{};
+    std::atomic<std::uint64_t> sent_datagrams_{}, sent_bytes_{};
+    std::atomic<std::uint64_t> receive_errors_{}, send_errors_{}, handler_errors_{};
+    std::atomic<int> last_socket_error_{};
 };
 }  // namespace c2

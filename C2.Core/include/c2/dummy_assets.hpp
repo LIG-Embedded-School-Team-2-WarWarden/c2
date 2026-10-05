@@ -32,6 +32,7 @@ struct ProcessedCommand {
 
 class DummyObservationAsset final {
 public:
+    [[nodiscard]] ProcessedCommand handle(const DevelopmentPoseCommand& command, std::uint64_t now_us);
     DummyObservationAsset(
         AssetPose pose, ObservationTurretLimits limits,
         std::size_t maximum_cached_results = 1024);
@@ -72,6 +73,7 @@ private:
 
 class DummyEffectorAsset final {
 public:
+    [[nodiscard]] ProcessedCommand handle(const DevelopmentPoseCommand& command, std::uint64_t now_us);
     explicit DummyEffectorAsset(
         AssetPose pose,
         ObservationTurretLimits limits = {-180, 180, -90, 90},
