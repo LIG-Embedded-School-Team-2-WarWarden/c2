@@ -189,6 +189,9 @@ message ObservationStatus {
 // HOME returns to the reference position, STOP halts motion and search,
 // ABSOLUTE_ANGLE points without starting search, and SCAN points to the
 // requested center angle before starting the configured search pattern.
+// Command valid_until_us is the receive/acceptance deadline, not a motion
+// completion deadline. C2 switches to its completion timeout after the first
+// progress ACK. TargetTrackUpdate freshness has separate semantics.
 message ObservationTurretCommand {
   MessageHeader header = 1;
   uint32 command_id = 2;

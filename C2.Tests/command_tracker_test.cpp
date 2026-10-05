@@ -119,6 +119,53 @@ TEST(CommandTrackerTest, StopsRetryingAfterProgressAndExpiresCompletionAndComman
     EXPECT_TRUE(expired.transmissions.empty());
 }
 
+TEST(CommandTrackerTest, CompletesMotionAfterDeliveryValidityExpires) {
+    c2::CommandTracker tracker({10, 50, 3, 8, 4, 16});
+    ASSERT_EQ(tracker.track(command(1, 10, 1, 120)), c2::CommandTrackResult::tracked);
+    ASSERT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::accepted), 110),
+              c2::AckUpdateResult::progress);
+    const auto after_validity = tracker.poll(120);
+    EXPECT_TRUE(after_validity.finalized.empty());
+    EXPECT_TRUE(after_validity.transmissions.empty());
+    EXPECT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::completed), 150),
+              c2::AckUpdateResult::terminal);
+    ASSERT_EQ(tracker.outcomes().size(), 1U);
+    EXPECT_EQ(tracker.outcomes().front().state, c2::CommandTerminalState::completed);
+}
+
+TEST(CommandTrackerTest, RepeatedProgressDoesNotExtendCompletionDeadline) {
+    c2::CommandTracker tracker({10, 50, 3, 8, 4, 16});
+    ASSERT_EQ(tracker.track(command(1, 10, 1, 120)), c2::CommandTrackResult::tracked);
+    ASSERT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::received), 110),
+              c2::AckUpdateResult::progress);
+    ASSERT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::in_progress), 150),
+              c2::AckUpdateResult::progress);
+    EXPECT_TRUE(tracker.poll(159).finalized.empty());
+    const auto timeout = tracker.poll(160);
+    ASSERT_EQ(timeout.finalized.size(), 1U);
+    EXPECT_EQ(timeout.finalized.front().state, c2::CommandTerminalState::completion_timeout);
+}
+
+TEST(CommandTrackerTest, RejectsLateProgressWithoutPollingFirst) {
+    c2::CommandTracker tracker({10, 50, 3, 8, 4, 16});
+    ASSERT_EQ(tracker.track(command(1, 10, 1, 120)), c2::CommandTrackResult::tracked);
+    EXPECT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::accepted), 120),
+              c2::AckUpdateResult::not_found);
+    ASSERT_EQ(tracker.outcomes().size(), 1U);
+    EXPECT_EQ(tracker.outcomes().front().state, c2::CommandTerminalState::expired);
+}
+
+TEST(CommandTrackerTest, RejectsCompletionAtDeadlineWithoutPollingFirst) {
+    c2::CommandTracker tracker({10, 50, 3, 8, 4, 16});
+    ASSERT_EQ(tracker.track(command(1, 10, 1, 120)), c2::CommandTrackResult::tracked);
+    ASSERT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::accepted), 110),
+              c2::AckUpdateResult::progress);
+    EXPECT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::completed), 160),
+              c2::AckUpdateResult::not_found);
+    ASSERT_EQ(tracker.outcomes().size(), 1U);
+    EXPECT_EQ(tracker.outcomes().front().state, c2::CommandTerminalState::completion_timeout);
+}
+
 TEST(CommandTrackerTest, EnforcesTotalPerAssetAndHistoryCapacity) {
     c2::CommandTracker tracker({10, 50, 2, 3, 2, 2});
     EXPECT_EQ(tracker.track(command(1, 10, 1)), c2::CommandTrackResult::tracked);
