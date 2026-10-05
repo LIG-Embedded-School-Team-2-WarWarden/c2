@@ -72,7 +72,7 @@
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)external\warwarden-protocol\cpp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -89,7 +89,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)external\warwarden-protocol\cpp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -108,7 +108,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)external\warwarden-protocol\cpp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -125,7 +125,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)external\warwarden-protocol\cpp\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -154,8 +154,8 @@
     <ClCompile Include="src\effector_command_service.cpp" />
     <ClCompile Include="src\observation_command_service.cpp" />
     <ClCompile Include="src\pointing.cpp" />
-    <ClCompile Include="src\protobuf_codec.cpp" />
-    <ClCompile Include="src\protocol_validation.cpp" />
+    <ClCompile Include="..\external\warwarden-protocol\cpp\src\protobuf_codec.cpp" />
+    <ClCompile Include="..\external\warwarden-protocol\cpp\src\protocol_validation.cpp" />
     <ClCompile Include="src\server_runtime.cpp" />
     <ClCompile Include="src\inbound_message_router.cpp" />
     <ClCompile Include="src\assignment_coordinator.cpp" />
@@ -179,9 +179,9 @@
     <ClInclude Include="include\c2\effector_command_service.hpp" />
     <ClInclude Include="include\c2\observation_command_service.hpp" />
     <ClInclude Include="include\c2\pointing.hpp" />
-    <ClInclude Include="include\c2\protobuf_codec.hpp" />
-    <ClInclude Include="include\c2\protocol.hpp" />
-    <ClInclude Include="include\c2\protocol_validation.hpp" />
+    <ClInclude Include="..\external\warwarden-protocol\cpp\include\c2\protobuf_codec.hpp" />
+    <ClInclude Include="..\external\warwarden-protocol\cpp\include\c2\protocol.hpp" />
+    <ClInclude Include="..\external\warwarden-protocol\cpp\include\c2\protocol_validation.hpp" />
     <ClInclude Include="include\c2\server_runtime.hpp" />
     <ClInclude Include="include\c2\command_identity.hpp" />
     <ClInclude Include="include\c2\datagram_sender.hpp" />
@@ -202,7 +202,7 @@
     <ClInclude Include="include\c2\udp_transport.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\protocol\mfs.proto" />
+    <None Include="..\external\warwarden-protocol\proto\mfs\icd\v3\mfs.proto" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

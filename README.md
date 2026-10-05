@@ -2,8 +2,9 @@
 
 MFS 시연 체계의 C++20 기반 통제소 서버다. 임의 개수의 관측·타격 자산을
 동적으로 등록하고, 관측 결과를 전역 트랙으로 관리하며, 안전 조건을 만족하는
-타격 자산을 자동 또는 수동으로 할당한다. UDP/Protobuf v3 메시지 계약은
-`protocol/mfs.proto`, 설계 결정은 `docs/decisions/`에서 관리한다.
+타격 자산을 자동 또는 수동으로 할당한다. UDP/Protobuf v3 메시지 계약과 공용
+C++ 코덱은 `external/warwarden-protocol` 서브모듈, 설계 결정은
+`docs/decisions/`에서 관리한다.
 
 서버 개발 포트폴리오 관점의 빠른 탐색은 [포트폴리오 안내](docs/portfolio/README.md)를
 참고한다. 설계 선택·장애 경계·검증 근거와 5분 데모를 정리했다.
@@ -56,6 +57,12 @@ MFS 시연 체계의 C++20 기반 통제소 서버다. 임의 개수의 관측·
 
 ## 빌드 및 시험
 
+최초 clone 또는 서브모듈 버전 변경 후 공용 프로토콜을 초기화한다.
+
+```powershell
+git submodule update --init --recursive
+```
+
 ```powershell
 msbuild c2.slnx /t:Rebuild /p:Configuration=Release /p:Platform=x64 /m
 .\x64\Release\C2.Tests.exe
@@ -71,7 +78,7 @@ msbuild c2.slnx /t:Rebuild /p:Configuration=Release /p:Platform=x64 /m
 ```
 
 ```powershell
-cmake -S . -B build -A x64
+cmake -S . -B build -A x64 -DWARWARDEN_PROTOCOL_BUILD_TESTS=ON
 cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```

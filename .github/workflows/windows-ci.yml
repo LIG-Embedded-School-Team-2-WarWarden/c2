@@ -10,8 +10,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - name: Configure
-        run: cmake -S . -B build -A x64 -DC2_BUILD_BENCHMARKS=ON
+        run: cmake -S . -B build -A x64 -DC2_BUILD_BENCHMARKS=ON -DWARWARDEN_PROTOCOL_BUILD_TESTS=ON
       - name: Build
         run: cmake --build build --config Release --parallel
       - name: Test
