@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$BinDir
 )
@@ -204,6 +204,7 @@ try {
         '--status-interval-ms', '80',
         '--heartbeat-interval-ms', '300', '--registration-interval-ms', '500',
         '--target-interval-ms', '300', '--y', '20',
+        '--target-x', '2', '--target-y', '3', '--target-z', '4',
         '--watchdog-timeout-ms', '4000'
     )
     $effector1 = Start-RedirectedProcess $effectorPath @(
@@ -228,7 +229,22 @@ try {
     $processes = @($server) + $assets
 
     Wait-OutputPattern $server 'assets=5 tracks=2' 10000 'status'
+    Wait-OutputPattern $server 'metrics rx_datagrams=[1-9][0-9]* .*queue_processed=[1-9][0-9]*' 10000 'metrics'
+    $server.StandardInput.WriteLine('targets')
+    Wait-OutputPattern $server 'observer=102 detection=1 xyz=\(2,3,4\)' 10000 'targets'
     $sent = 0
+    Wait-OutputPattern $server '(?s)asset=102[^\r\n]*connection=CONNECTED.*asset=203[^\r\n]*connection=CONNECTED' 10000 'assets'
+    foreach ($poseCase in @(
+        @{ Command = 'dev-pose 102 -25 30 2 90'; Pattern = 'asset=102[^\r\n]*xyz=\(-25,30,2\) azimuth_deg=90' },
+        @{ Command = 'dev-pose 203 95 5 2 45'; Pattern = 'asset=203[^\r\n]*xyz=\(95,5,2\) azimuth_deg=45' },
+        @{ Command = 'dev-pose 102 0 20 1.5 0'; Pattern = 'asset=102[^\r\n]*xyz=\(0,20,1\.5\) azimuth_deg=0' },
+        @{ Command = 'dev-pose 203 90 0 1.5 0'; Pattern = 'asset=203[^\r\n]*xyz=\(90,0,1\.5\) azimuth_deg=0' }
+    )) {
+        $server.StandardInput.WriteLine($poseCase.Command)
+        ++$sent
+        Wait-SentCount $server $sent
+        Wait-OutputPattern $server $poseCase.Pattern 10000 'assets'
+    }
     foreach ($command in @(
         'scan 101 10 5',
         'obs-stop 101',
@@ -283,8 +299,8 @@ try {
         Get-ProcessText $_ -ErrorStream
     }) -join "`n"
     $sentCount = ([regex]::Matches($serverOutput, '> sent')).Count
-    if ($sentCount -ne 6) {
-        throw "Expected six successful commands but observed ${sentCount}.`n${serverOutput}`n${allErrors}"
+    if ($sentCount -ne 10) {
+        throw "Expected ten successful commands but observed ${sentCount}.`n${serverOutput}`n${allErrors}"
     }
     if ($serverOutput -notmatch 'assets=5 tracks=2 assignments=1 pending_commands=0' -or
         $serverOutput -notmatch 'estop assets=3 datagrams=12') {
@@ -304,7 +320,7 @@ try {
     Assert-InvalidConfiguration $serverPath @('--heartbeat-interval-ms', '0') 'invalid heartbeat interval'
     Assert-InvalidConfiguration $observationPath @('--target-interval-ms', '0') 'invalid target interval'
     Assert-InvalidConfiguration $effectorPath @('--status-interval-ms', '0') 'invalid status interval'
-    Write-Host 'UDP process smoke test passed: 2 observations, 3 effectors, moving-target routing, continuous tracking beyond output duration, session replacement, automatic assignment, attack flow, estop-all safe states.'
+    Write-Host 'UDP process smoke test passed: 2 observations, 3 effectors, development pose commands and reports, moving-target routing, continuous tracking beyond output duration, session replacement, automatic assignment, attack flow, estop-all safe states.'
 } finally {
     foreach ($process in $processes) {
         if ($null -ne $process -and -not $process.HasExited) {

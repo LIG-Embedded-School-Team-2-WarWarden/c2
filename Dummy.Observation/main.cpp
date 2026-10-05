@@ -24,13 +24,18 @@ struct Options {
     std::uint16_t target_port{5002};
     std::uint16_t c2_port{5000};
     std::uint64_t asset_id{};
-    std::uint64_t capabilities{c2::capability::observation_scan};
+    std::uint64_t capabilities{c2::capability::observation_scan | c2::capability::development_pose};
     std::uint64_t registration_interval_ms{1'000};
     std::uint64_t lease_ms{5'000};
     float x_m{};
     float y_m{};
     float z_m{1.5F};
     float azimuth_deg{};
+    // Precomputed PROJECT_FRAME target data. The dummy does not interpret
+    // LiDAR-local coordinates or apply sensor/mount calibration.
+    float target_x_m{100.0F};
+    float target_y_m{20.0F};
+    float target_z_m{10.0F};
     float vx_mps{};
     float vy_mps{};
     float vz_mps{};
@@ -95,6 +100,9 @@ Options parse_options(const int argc, char* argv[]) {
         else if (name == "--y") options.y_m = finite_float(value, "y");
         else if (name == "--z") options.z_m = finite_float(value, "z");
         else if (name == "--azimuth") options.azimuth_deg = finite_float(value, "azimuth");
+        else if (name == "--target-x") options.target_x_m = finite_float(value, "target x");
+        else if (name == "--target-y") options.target_y_m = finite_float(value, "target y");
+        else if (name == "--target-z") options.target_z_m = finite_float(value, "target z");
         else if (name == "--vx") options.vx_mps = finite_float(value, "vx");
         else if (name == "--vy") options.vy_mps = finite_float(value, "vy");
         else if (name == "--vz") options.vz_mps = finite_float(value, "vz");
@@ -172,6 +180,13 @@ int main(int argc, char* argv[]) {
             const auto received = now_us();
             if (const auto* heartbeat = std::get_if<c2::Heartbeat>(&payload)) {
                 (void)asset.observe_control_heartbeat(*heartbeat, received);
+            } else if (const auto* command = std::get_if<c2::DevelopmentPoseCommand>(&payload)) {
+                if ((options.capabilities & c2::capability::development_pose) == 0) return;
+                const auto result = asset.handle(*command, received);
+                send(*transport_ptr, result.acknowledgement, status_endpoint);
+                if (result.error_report)
+                    send(*transport_ptr, *result.error_report, status_endpoint);
+                send(*transport_ptr, asset.asset_pose(received), status_endpoint);
             } else if (const auto* command = std::get_if<c2::ObservationTurretCommand>(&payload)) {
                 const auto result = asset.handle(*command, received);
                 send(*transport_ptr, result.acknowledgement, status_endpoint);
@@ -223,13 +238,8 @@ int main(int argc, char* argv[]) {
                         std::chrono::milliseconds(options.heartbeat_interval_ms);
                 }
                 if (steady_now >= next_target) {
-                    const auto elapsed_s = std::chrono::duration<double>(
-                        steady_now - started).count();
                     send(transport, asset.target(
-                        1,
-                        static_cast<float>(100.0 + options.vx_mps * elapsed_s),
-                        static_cast<float>(20.0 + options.vy_mps * elapsed_s),
-                        static_cast<float>(10.0 + options.vz_mps * elapsed_s),
+                        1, options.target_x_m, options.target_y_m, options.target_z_m,
                         options.vx_mps, options.vy_mps, options.vz_mps,
                         options.velocity_valid, 0.95F, now), target_endpoint);
                     next_target = steady_now +

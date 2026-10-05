@@ -13,11 +13,27 @@ jobs:
         with:
           submodules: recursive
       - name: Configure
-        run: cmake -S . -B build -A x64
+        run: cmake -S . -B build -A x64 -DC2_BUILD_BENCHMARKS=ON -DWARWARDEN_PROTOCOL_BUILD_TESTS=ON
       - name: Build
         run: cmake --build build --config Release --parallel
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure --output-junit test-results.xml
       - name: UDP process smoke test
         shell: pwsh
         run: ./scripts/run_udp_smoke.ps1 -BinDir ./build/Release
+      - name: Runtime benchmark (measurement only)
+        shell: pwsh
+        run: ./scripts/run_runtime_benchmark.ps1 -BinDir ./build/Release -Samples 5000 -Runs 1
+      - name: UDP fault and burst probe
+        shell: pwsh
+        run: ./scripts/run_udp_reliability_probe.ps1 -BinDir ./build/Release
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c2-validation-evidence
+          path: |
+            build/test-results.xml
+            build/runtime-benchmark.json
+            build/udp-reliability.json
+          if-no-files-found: warn

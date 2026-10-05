@@ -7,10 +7,6 @@
 
 namespace c2 {
 namespace {
-std::uint32_t increment_non_zero(const std::uint32_t value) noexcept {
-    return value == std::numeric_limits<std::uint32_t>::max() ? 1U : value + 1U;
-}
-
 bool supported(const AttackAction action) noexcept {
     return action == AttackAction::arm || action == AttackAction::start ||
            action == AttackAction::stop || action == AttackAction::emergency_stop;
@@ -23,14 +19,9 @@ bool safety_override(const AttackAction action) noexcept {
 
 AttackCommandService::AttackCommandService(const AttackCommandConfig config)
     : config_(config),
-      next_command_id_(config.first_command_id),
-      next_sequence_(config.first_sequence) {
+      identity_(config.first_command_id, config.first_sequence) {
     if (config_.command_validity_us == 0)
         throw std::invalid_argument("command validity must be non-zero");
-    if (next_command_id_ == 0)
-        throw std::invalid_argument("first command id must be non-zero");
-    if (next_sequence_ == 0)
-        throw std::invalid_argument("first sequence must be non-zero");
 }
 
 AttackStatusUpdateResult AttackCommandService::update_status(
@@ -62,23 +53,38 @@ bool AttackCommandService::record_pointing_command(
 AttackCommandResult AttackCommandService::create(
     const AttackAction action, std::uint64_t target_id,
     std::uint32_t duration_ms, const std::uint64_t now_us) {
+    std::lock_guard lock(mutex_);
+    return create_locked(action, target_id, duration_ms, now_us,
+        {status_, pointing_command_ && now_us <= pointing_command_->valid_until_us,
+         pointing_command_ ? pointing_command_->target_id : 0});
+}
+
+AttackCommandResult AttackCommandService::create(
+    const AttackAction action, const std::uint64_t target_id,
+    const std::uint32_t duration_ms, const std::uint64_t now_us,
+    const AttackCommandContext& context) {
+    std::lock_guard lock(mutex_);
+    return create_locked(action, target_id, duration_ms, now_us, context);
+}
+
+AttackCommandResult AttackCommandService::create_locked(
+    const AttackAction action, std::uint64_t target_id,
+    std::uint32_t duration_ms, const std::uint64_t now_us,
+    const AttackCommandContext& context) {
     if (!supported(action)) return AttackCommandError::unsupported_action;
     if (now_us == 0) return AttackCommandError::invalid_time;
     if (now_us > std::numeric_limits<std::uint64_t>::max() - config_.command_validity_us)
         return AttackCommandError::deadline_overflow;
 
-    std::lock_guard lock(mutex_);
     if (!safety_override(action)) {
-        if (!status_) return AttackCommandError::status_unavailable;
-        if (!pointing_command_) return AttackCommandError::target_unavailable;
-        if (now_us > pointing_command_->valid_until_us)
-            return AttackCommandError::target_unavailable;
-        if (target_id == 0 || target_id != pointing_command_->target_id)
+        if (!context.status) return AttackCommandError::status_unavailable;
+        if (!context.target_available) return AttackCommandError::target_unavailable;
+        if (target_id == 0 || target_id != context.target_id)
             return AttackCommandError::target_mismatch;
-        if (status_->state != EffectorState::ready)
+        if (context.status->state != EffectorState::ready)
             return AttackCommandError::invalid_state;
-        if (!status_->aligned) return AttackCommandError::not_aligned;
-        if (action == AttackAction::start && !status_->attack_armed)
+        if (!context.status->aligned) return AttackCommandError::not_aligned;
+        if (action == AttackAction::start && !context.status->attack_armed)
             return AttackCommandError::not_armed;
         if (action == AttackAction::start && duration_ms == 0)
             return AttackCommandError::invalid_duration;
@@ -88,14 +94,13 @@ AttackCommandResult AttackCommandService::create(
     }
 
     AttackCommand command{
-        {protocol_version, next_sequence_, now_us, ComponentId::command_and_control,
+        {protocol_version, 1, now_us, ComponentId::command_and_control,
          ComponentId::effector_asset},
-        next_command_id_, target_id, action, duration_ms,
+        1, target_id, action, duration_ms,
         now_us + config_.command_validity_us};
     if (!validate(command).valid())
         throw std::logic_error("generated attack command is invalid");
-    next_command_id_ = increment_non_zero(next_command_id_);
-    next_sequence_ = increment_non_zero(next_sequence_);
+    identity_.assign(command);
     return command;
 }
 }  // namespace c2

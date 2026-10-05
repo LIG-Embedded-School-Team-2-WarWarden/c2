@@ -179,3 +179,20 @@ TEST(EffectorCommandServiceTest, RejectsInvalidConfiguration) {
                  std::invalid_argument);
 }
 }  // namespace
+
+TEST(EffectorCommandContextTest, UsesExplicitPoseLimitsAnd64BitTrackWithoutLegacyState) {
+    c2::StateStore store({1000, 4});
+    c2::EffectorCommandService commands(store, config());
+    const auto track_id = std::uint64_t{1} << 40;
+    const auto result = commands.create_for_target(track_id, target(7, 0, 10, 0),
+        effector_pose(), {-180, 180, -90, 90}, 200);
+    ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(result));
+    const auto command = std::get<c2::EffectorTurretCommand>(result);
+    EXPECT_EQ(command.target_id, track_id);
+    EXPECT_NEAR(command.target_pan_deg, 90, 0.001);
+    EXPECT_EQ(std::get<c2::EffectorCommandError>(commands.create_for_target(
+        track_id, target(7, 0, 10, 0), effector_pose(), {-10, 10, -10, 10}, 200)),
+        c2::EffectorCommandError::outside_turret_limits);
+    EXPECT_EQ(std::get<c2::EffectorCommandError>(commands.create_for_target(7, 200)),
+        c2::EffectorCommandError::target_unavailable);
+}

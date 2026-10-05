@@ -2,6 +2,22 @@
 
 #include "c2/server_console.hpp"
 
+TEST(ServerConsoleTest, ParsesDevelopmentPoseAndRejectsInvalidArguments) {
+    const auto parsed = c2::parse_console_command("dev-pose 201 -10 20 1.5 90");
+    ASSERT_TRUE(std::holds_alternative<c2::ConsoleCommand>(parsed));
+    const auto& command = std::get<c2::ConsoleCommand>(parsed);
+    EXPECT_EQ(command.kind, c2::ConsoleCommandKind::development_pose);
+    EXPECT_EQ(command.asset_id, 201U);
+    EXPECT_FLOAT_EQ(command.x_m, -10);
+    EXPECT_FLOAT_EQ(command.y_m, 20);
+    EXPECT_FLOAT_EQ(command.z_m, 1.5F);
+    EXPECT_FLOAT_EQ(command.azimuth_deg, 90);
+    for (const auto text : {"dev-pose 0 1 2 3 90", "dev-pose 201 1 2 3 360",
+                           "dev-pose 201 1 2 3 -1", "dev-pose 201 1 2 3",
+                           "dev-pose 201 1 2 3 0 extra", "dev-pose 201 nan 2 3 0"})
+        EXPECT_TRUE(std::holds_alternative<c2::ConsoleParseError>(c2::parse_console_command(text)));
+}
+
 #include <variant>
 
 namespace {
@@ -19,6 +35,7 @@ TEST(ServerConsoleTest, ParsesAssetTrackAndStatusQueries) {
     EXPECT_EQ(parsed("errors").kind, c2::ConsoleCommandKind::errors);
     EXPECT_EQ(parsed("outcomes").kind, c2::ConsoleCommandKind::outcomes);
     EXPECT_EQ(parsed("events").kind, c2::ConsoleCommandKind::events);
+    EXPECT_EQ(parsed("pending").kind, c2::ConsoleCommandKind::pending);
     EXPECT_EQ(parsed("quit").kind, c2::ConsoleCommandKind::quit);
 }
 
@@ -78,3 +95,11 @@ TEST(ServerConsoleTest, RejectsMissingExtraMalformedAndZeroArguments) {
     }
 }
 }  // namespace
+
+TEST(ServerConsoleTest, ParsesMetricsAndRejectsArguments) {
+    const auto result = c2::parse_console_command("metrics");
+    ASSERT_TRUE(std::holds_alternative<c2::ConsoleCommand>(result));
+    EXPECT_EQ(std::get<c2::ConsoleCommand>(result).kind, c2::ConsoleCommandKind::metrics);
+    EXPECT_TRUE(std::holds_alternative<c2::ConsoleParseError>(
+        c2::parse_console_command("metrics extra")));
+}

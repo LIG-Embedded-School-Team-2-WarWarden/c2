@@ -6,6 +6,11 @@ MFS 시연 체계의 C++20 기반 통제소 서버다. 임의 개수의 관측·
 C++ 코덱은 `external/warwarden-protocol` 서브모듈, 설계 결정은
 `docs/decisions/`에서 관리한다.
 
+서버 개발 포트폴리오 관점의 빠른 탐색은 [포트폴리오 안내](docs/portfolio/README.md)를
+참고한다. 설계 선택·장애 경계·검증 근거와 5분 데모를 정리했다.
+[운영 절차](docs/operations.md)와 [재현 가능한 측정](docs/portfolio/benchmark.md)도 제공한다.
+
+
 ## 좌표계 책임
 
 1. 관측 자산은 센서 로컬 좌표를 `PROJECT_FRAME` 월드좌표로 변환한다.
@@ -27,6 +32,11 @@ C++ 코덱은 `external/warwarden-protocol` 서브모듈, 설계 결정은
 정지로 간주하지 않고 자동 연속 추적 스트림을 만들지 않는다. `duration_ms`는 타격
 출력 지속시간일 뿐 추적 종료시간이 아니다. 추적은 STOP/ESTOP, 표적 만료, 예측시간
 초과, Pose/통신 상실, 비정상 값 또는 터렛 한계 초과 때 안전 정지한다.
+
+관측 더미의 `--target-x`, `--target-y`, `--target-z`와 `--vx`, `--vy`, `--vz`는
+이미 `PROJECT_FRAME`으로 준비된 표적 데이터다. 더미는 이 값을 주기적으로 송신할
+뿐이며 LiDAR 로컬 좌표 해석, 센서 장착 오프셋 또는 Pan/Tilt 보정은 수행하지 않는다.
+실제 관측 자산은 장착 오프셋을 포함한 좌표변환을 완료한 뒤 같은 메시지를 송신해야 한다.
 
 ## 다중 자산 모델
 
@@ -59,8 +69,16 @@ msbuild c2.slnx /t:Rebuild /p:Configuration=Release /p:Platform=x64 /m
 .\scripts\run_udp_smoke.ps1 -BinDir .\x64\Release
 ```
 
+서버와 관측 더미 2대, 타격 더미 3대를 각각 별도 CMD 창에서 한꺼번에 실행하려면
+`scripts\run_dummy_clients_visible.cmd`를 더블클릭하거나 다음처럼 실행한다. 서버 창에서
+콘솔 명령을 직접 입력하며 시험하고, 각 창에서 `quit`을 입력해 종료한다.
+
 ```powershell
-cmake -S . -B build -A x64
+.\scripts\run_dummy_clients_visible.cmd
+```
+
+```powershell
+cmake -S . -B build -A x64 -DWARWARDEN_PROTOCOL_BUILD_TESTS=ON
 cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```
@@ -85,6 +103,8 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 | 옵션 | 기본값 | 의미 |
 |---|---:|---|
 | `--asset-port` | 5000 | 동적 자산 공용 수신 포트 |
+| `--ingress-queue-capacity` | 1024 | 공용 수신 큐 대기 packet 수 상한 |
+| `--ingress-queue-bytes` | 4194304 | 공용 수신 큐 대기 payload bytes 상한 |
 | `--target-validity-ms` | 2000 | 표적/전역 트랙 유효시간 |
 | `--max-targets` | 256 | 전체 표적/트랙 상한 |
 | `--max-tracks-per-observer` | 64 | 관측 자산 하나의 트랙 상한 |
@@ -121,6 +141,7 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 |---|---|
 | `assets` | 자산·세션·Endpoint·연결·Pose·capability·상태·할당 조회 |
 | `targets` | 전역 track ID, 원 관측 자산/detection ID와 좌표 조회 |
+| `dev-pose ASSET_ID X Y Z AZIMUTH_DEG` | 개발용 자산 위치(m)·설치 방위(deg) 설정 |
 | `scan OBS_ID PAN TILT` | 지정 관측 자산이 해당 방향에서 탐색 시작 |
 | `observe OBS_ID PAN TILT` | 지정 관측 자산을 절대 Pan/Tilt로 지향 |
 | `obs-stop OBS_ID` / `obs-home OBS_ID` | 관측 탐색 정지 / 원점 복귀 |
@@ -132,6 +153,7 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 | `stop EFFECTOR_ID` | 보존 Endpoint를 포함해 특정 타격 자산 정지 |
 | `estop EFFECTOR_ID` / `estop-all` | 특정/전체 알려진 타격 자산 비상정지 |
 | `status` | 자산·트랙·할당·pending 명령 요약 |
+| `metrics` | 공용 UDP·용량 제한 수신 큐·송신·주기 worker 지표 |
 | `errors` | 자산이 송신한 오류 이력 조회 |
 | `outcomes` | 완료·거부·실패·만료·재시도 소진·세션 종료 결과 조회 |
 | `events` | 등록·인증·Endpoint/session·상태 갱신 거부 이벤트 조회 |
@@ -140,6 +162,26 @@ GitHub Actions는 모든 push와 PR에서 Windows Release 빌드, 전체 테스�
 일반 명령은 등록 lease, Heartbeat 연결, 새 세션의 `AssetPose` 재동기화와 상태
 최신성을 요구한다. STOP과 ESTOP은 안전 우선 명령이므로 연결이 끊긴 보존 자산에도
 전송한다. ESTOP 반복 패킷은 동일 command ID를 사용한다.
+
+## 개발용 위치·방위 설정
+
+실행 중인 통제소 콘솔에서 `dev-pose 201 10 20 1.5 90`을 입력하면 자산 201의
+설치 위치와 방위를 변경한다. 두 종류의 더미 자산 모두 지원하며 `PROJECT_FRAME`
+위치(m), +X에서 +Y 방향으로 증가하는 설치 방위(deg, 0 이상 360 미만)를 사용한다.
+설치 방위는 현재 터렛 Pan/Tilt와 구분되며 이 명령은 모터를 이동시키지 않는다.
+
+등록과 Heartbeat 연결, `development_pose` capability(bit 3, 값 8)가 필요하다.
+초기 Pose가 없어도 설정할 수 있지만 미등록·단절 자산에는 보내지 않는다.
+관측 자산은 STANDBY이며 탐색·축 이동이 중단되어야 하고, 포인터 자산은
+STANDBY이며 출력·무장·자동 추적이 중단되어야 한다. C2의 활성 할당이 있으면
+`unassign`으로 해제해야 한다. 필요하면 먼저 `obs-stop` 또는 `stop`을 실행한다.
+
+`sent`는 송신 결과다. 적용 성공은 `outcomes`의 완료 ACK와 `assets`에 재보고된
+Pose로 확인한다. C2는 송신만으로 자체 Pose를 덮어쓰지 않는다. 값은 자산 내부에
+원자적으로 적용되어 이후 주기 보고에도 유지되고, 자산 재시작 시 실행 옵션값으로
+돌아간다. 재시작 후 새 세션에는 자동 재적용하지 않는다. 실제 GPS 등의 자동 추정과
+전환하는 계약은 이번 기능에 포함하지 않는다. 상세 ICD는
+`docs/icd/development-pose-command.md`에서 관리한다.
 
 ## 다중 더미 자산 시연
 

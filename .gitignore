@@ -50,3 +50,6 @@ packages/
 *.tmp
 *.temp
 ~$*
+
+# Runtime rolling event logs
+logs/

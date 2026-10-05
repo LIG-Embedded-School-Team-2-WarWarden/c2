@@ -89,3 +89,23 @@ TEST(UdpTransportTest, DestructorStopsBlockedReceiverPromptly) {
     EXPECT_LT(std::chrono::steady_clock::now() - started, 2s);
 }
 }  // namespace
+
+TEST(UdpTransportMetricsTest, CountsConsumerFailureAndContinuesReceiving) {
+    std::promise<void> done;
+    std::atomic<int> calls{};
+    c2::UdpTransport receiver({"127.0.0.1", 0}, [&](auto, auto) {
+        if (++calls == 1) throw std::runtime_error("injected handler failure");
+        done.set_value();
+    });
+    c2::UdpTransport sender({"127.0.0.1", 0}, [](auto, auto) {});
+    receiver.start(); sender.start();
+    const std::vector<std::byte> bytes(3);
+    sender.send(bytes, receiver.local_endpoint());
+    sender.send(bytes, receiver.local_endpoint());
+    EXPECT_EQ(done.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    receiver.stop(); sender.stop();
+    const auto stats = receiver.stats();
+    EXPECT_EQ(stats.received_datagrams, 2); EXPECT_EQ(stats.received_bytes, 6);
+    EXPECT_EQ(stats.handler_errors, 1); EXPECT_EQ(stats.receive_errors, 0);
+    EXPECT_EQ(sender.stats().sent_datagrams, 2); EXPECT_EQ(sender.stats().sent_bytes, 6);
+}
