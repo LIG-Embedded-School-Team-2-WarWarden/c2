@@ -24,6 +24,7 @@ struct InboundRejection {
 struct CommandRetryResult {
     std::size_t resent{};
     std::size_t exhausted{};
+    std::size_t send_failed{};
 };
 
 struct EmergencyStopResult {
@@ -36,6 +37,7 @@ enum class DispatchError {
     connection_unavailable,
     pose_resynchronization_required,
     command_rejected,
+    delivery_uncertain,
 };
 
 using ObservationDispatchResult =

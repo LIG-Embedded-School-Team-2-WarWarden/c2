@@ -48,6 +48,7 @@ struct ServerRuntimeConfig {
     AssetAssignmentConfig assignments;
     std::size_t maximum_error_history{128};
     std::size_t maximum_inbound_rejections{128};
+    EventSink event_sink;
 };
 
 class ServerRuntime final {
@@ -84,6 +85,7 @@ public:
     void send_heartbeats(std::uint64_t now_us, std::uint64_t uptime_ms);
     [[nodiscard]] CommandRetryResult retry_unacknowledged(std::uint64_t now_us);
     [[nodiscard]] std::size_t pending_command_count() const;
+    [[nodiscard]] std::vector<PendingCommandSnapshot> pending_commands() const;
     [[nodiscard]] bool pose_resynchronization_required(ComponentId source) const;
     [[nodiscard]] ConnectionState connection_state(
         ComponentId source, std::uint64_t now_us);
@@ -112,12 +114,19 @@ private:
     template <typename Message>
     void dispatch(const Message& message, const Endpoint& endpoint);
     template <typename Message>
-    void dispatch_tracked(
+    bool dispatch_tracked(
         const Message& message, const Endpoint& endpoint,
         ComponentId acknowledgement_source, std::uint64_t now_us);
     [[nodiscard]] AttackDispatchResult dispatch_safety_command(
         const AssetSnapshot& asset, AttackAction action,
         std::uint32_t repetitions, std::uint64_t now_us);
+    void audit_inbound(const Envelope& envelope, InboundResult result, std::uint64_t received_at_us) const;
+    void audit_outbound(std::span<const std::byte> bytes, const Endpoint& endpoint,
+                        std::uint64_t now_us) const noexcept;
+    bool send_tracked(std::span<const std::byte> bytes, const Endpoint& endpoint,
+                      const CommandKey& key, std::uint64_t now_us) noexcept;
+    bool send_safety(std::span<const std::byte> bytes, const Endpoint& endpoint,
+                     const CommandKey& key, std::uint64_t now_us) noexcept;
     ServerRuntimeConfig config_;
     DatagramSender sender_;
     AssetRegistry registry_;

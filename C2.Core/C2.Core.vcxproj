@@ -148,6 +148,7 @@
     <ClCompile Include="src\asset_assignment.cpp" />
     <ClCompile Include="src\datagram_processor.cpp" />
     <ClCompile Include="src\connection_monitor.cpp" />
+    <ClCompile Include="src\event_log.cpp" />
     <ClCompile Include="src\command_tracker.cpp" />
     <ClCompile Include="src\dummy_assets.cpp" />
     <ClCompile Include="src\effector_command_service.cpp" />
@@ -171,6 +172,7 @@
     <ClInclude Include="include\c2\asset_registry.hpp" />
     <ClInclude Include="include\c2\asset_assignment.hpp" />
     <ClInclude Include="include\c2\connection_monitor.hpp" />
+    <ClInclude Include="include\c2\event_log.hpp" />
     <ClInclude Include="include\c2\command_tracker.hpp" />
     <ClInclude Include="include\c2\legacy_command_tracker.hpp" />
     <ClInclude Include="include\c2\dummy_assets.hpp" />

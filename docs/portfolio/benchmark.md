@@ -44,3 +44,26 @@ Windows Release, 논리 프로세서 8개, 16 observers / 512 tracks / 50000 sam
 
 이 표본은 로컬 in-process 측정이다. 단일 최고값을 전체 시스템 처리량으로 표현하지
 않고 반복 실행의 변동과 측정 범위를 함께 제시한다.
+
+
+## 실제 UDP 신뢰성 probe
+
+`-DC2_BUILD_BENCHMARKS=ON`으로 빌드한 뒤
+`scripts/run_udp_reliability_probe.ps1 -BinDir ./build/Release`를 실행한다.
+`c2_udp_probe burst`와 `c2_udp_probe faults`를 각각 독립 프로세스로 실행한다.
+loopback UDP downlink/uplink relay, bounded ingress(64 packets), Runtime tracker와
+idempotent STOP 시뮬레이터를 통과한다. burst는 200개 명령을 연속 발행한다.
+faults는 command_id modulo 기준으로 첫 명령 1/4과 첫 ACK 1/5을 버리고,
+일부 명령을 복제하거나 다음 전달 뒤로 지연시킨다. 동일 ID 재시도는 ACK를 다시 보내며
+시뮬레이터 execution set은 중복 ID를 한 번만 집계한다. 이것은 실장비 멱등성의 증명이 아니다.
+
+ACK p50/p95/p99는 서버 API 호출 직전 steady clock부터 completed outcome까지이며
+완료한 명령만 표본에 포함한다. JSON의 completed/commands, unique execution, injected fault
+counters와 handler_errors를 함께 읽어야 한다. 모두 완료되지 않거나 fault 주입이 누락되면
+도구는 실패한다. 20ms ACK timeout, 최대 100 attempts, 10초 delivery validity를 사용한다.
+OS socket buffer 손실과 application queue drop은 다르며 queue_dropped_full은 후자만 센다.
+물리 장비·네트워크 구간·실제 동작 완료 시간·JSONL 로그 I/O는 측정하지 않는다.
+CI는 신뢰성 invariant만 검사하며 공유 runner에 절대 지연 threshold를 두지 않는다.
+
+실측 결과는 [2026-10-05 UDP JSON](measurements/2026-10-05-udp.json)에 보관한다.
+코드 커밋·tracked 변경 여부·별도 untracked 파일 수·실행 환경을 함께 기록한다.

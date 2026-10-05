@@ -17,16 +17,16 @@ InboundResult AssetMessageRouter::receive(const Envelope& envelope, const Endpoi
                     message, source, received_at_us);
                 if (result == AssetRegistryResult::session_replaced && previous &&
                     previous->session_id != message.header.session_id) {
-                    if (previous->role == AssetRole::effector)
-                        (void)safety_sender_(
-                            *previous, AttackAction::emergency_stop,
-                            emergency_stop_repetitions_, received_at_us);
                     (void)command_tracker_.end_session(
                         previous->asset_id, previous->session_id, received_at_us);
                     if (previous->role == AssetRole::effector)
                         (void)assignments_.mark_unavailable(
                             previous->asset_id, previous->session_id,
                             received_at_us);
+                    if (previous->role == AssetRole::effector)
+                        (void)safety_sender_(
+                            *previous, AttackAction::emergency_stop,
+                            emergency_stop_repetitions_, received_at_us);
                 }
                 return result == AssetRegistryResult::registered ||
                                result == AssetRegistryResult::refreshed ||
@@ -74,6 +74,7 @@ InboundResult AssetMessageRouter::receive(const Envelope& envelope, const Endpoi
                     return InboundResult::rejected;
                 }
             } else if constexpr (std::is_same_v<T, TargetCoordinate>) {
+                std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
                 const auto authenticated = registry_.authenticate(
                     message.header, source, received_at_us);
                 if (authenticated != AssetRegistryResult::stored) {

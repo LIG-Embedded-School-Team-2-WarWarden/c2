@@ -23,8 +23,9 @@ std::uint64_t now_us() {
 
 template <typename Result>
 void print_dispatch(const Result& result) {
-    std::cout << (std::holds_alternative<c2::DispatchError>(result) ? "rejected" : "sent")
-              << '\n';
+    if (const auto* error = std::get_if<c2::DispatchError>(&result))
+        std::cout << (*error == c2::DispatchError::delivery_uncertain ? "delivery_uncertain" : "rejected") << '\n';
+    else std::cout << "sent\n";
 }
 
 std::string_view connection_name(const c2::ConnectionState state) {
@@ -57,6 +58,7 @@ std::string_view outcome_name(const c2::CommandTerminalState state) {
         case c2::CommandTerminalState::delivery_exhausted: return "DELIVERY_EXHAUSTED";
         case c2::CommandTerminalState::completion_timeout: return "COMPLETION_TIMEOUT";
         case c2::CommandTerminalState::session_ended: return "SESSION_ENDED";
+        case c2::CommandTerminalState::cancelled_before_send: return "CANCELLED_BEFORE_SEND";
     }
     return "UNKNOWN";
 }
@@ -103,8 +105,12 @@ int main(int argc, char* argv[]) {
         c2::UdpTransport sender({options.bind_address, 0}, [](auto, auto) {});
         sender.start();
 
+        c2::EventLog event_log(options.event_log);
+        auto runtime_config = c2::make_server_runtime_config(options);
+        if (!options.event_log.path.empty())
+            runtime_config.event_sink = [&](const auto& event) { event_log.append(event); };
         c2::ServerRuntime runtime(
-            c2::make_server_runtime_config(options),
+            runtime_config,
             [&](const auto bytes, const auto& endpoint) { sender.send(bytes, endpoint); });
 
         const auto receive = [&](std::vector<std::byte> data, c2::Endpoint) {
@@ -157,7 +163,7 @@ int main(int argc, char* argv[]) {
                      "obs-home OBS_ID, assign TRACK_ID [EFFECTOR_ID], unassign TRACK_ID, "
                      "point TRACK_ID, arm TRACK_ID, start TRACK_ID MS, "
                      "stop EFFECTOR_ID, estop EFFECTOR_ID, estop-all, status, "
-                     "errors, outcomes, events, metrics, quit\n";
+                     "errors, outcomes, events, metrics, pending, quit\n";
         std::string line;
         while (std::cout << "> " && std::getline(std::cin, line)) {
             const auto parsed = c2::parse_console_command(line);
@@ -354,10 +360,22 @@ int main(int argc, char* argv[]) {
                                   << " ended_us=" << outcome.ended_at_us << '\n';
                     break;
                 }
+                case c2::ConsoleCommandKind::pending: {
+                    for (const auto& pending : runtime.pending_commands())
+                        std::cout << "asset=" << pending.key.asset_id << " session=" << pending.key.session_id
+                                  << " command=" << pending.key.command_id
+                                  << " state=" << static_cast<int>(pending.state)
+                                  << " delivery=" << (pending.delivery == c2::CommandDeliveryState::uncertain
+                                       ? "UNCERTAIN" : pending.delivery == c2::CommandDeliveryState::sent
+                                       ? "SENT" : "AWAITING_SEND")
+                                  << " attempts=" << pending.attempts << '\n';
+                    break;
+                }
                 case c2::ConsoleCommandKind::metrics: {
                     const auto queue = asset_ingress.processing_stats();
                     const auto udp = asset_ingress.transport_stats();
                     const auto sent = sender.stats();
+                    const auto logged = event_log.stats();
                     std::cout << "metrics rx_datagrams=" << udp.received_datagrams
                               << " rx_bytes=" << udp.received_bytes
                               << " rx_errors=" << udp.receive_errors
@@ -378,6 +396,9 @@ int main(int argc, char* argv[]) {
                               << " tx_bytes=" << sent.sent_bytes
                               << " tx_last_socket_error=" << sent.last_socket_error
                               << " tx_errors=" << sent.send_errors
+                              << " event_log_written=" << logged.written
+                              << " event_log_write_errors=" << logged.write_errors
+                              << " event_log_rotations=" << logged.rotations
                               << " worker_errors=" << worker_errors.load()
                               << " pending=" << runtime.pending_command_count() << '\n';
                     break;
