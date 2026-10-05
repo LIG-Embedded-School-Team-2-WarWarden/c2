@@ -14,6 +14,7 @@
 namespace c2 {
 struct CommandTrackerConfig {
     std::uint64_t delivery_ack_timeout_us{200'000};
+    // Starts at the first progress ACK; subsequent progress does not extend it.
     std::uint64_t completion_timeout_us{2'000'000};
     std::uint32_t maximum_attempts{3};
     std::size_t maximum_pending{1'024};
@@ -35,6 +36,7 @@ struct PendingCommand {
     std::vector<std::byte> datagram;
     Endpoint endpoint;
     std::uint64_t sent_at_us{};
+    // Delivery/acceptance deadline only, not a motion completion deadline.
     std::uint64_t valid_until_us{};
 };
 

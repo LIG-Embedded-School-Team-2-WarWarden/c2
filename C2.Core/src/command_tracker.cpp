@@ -76,6 +76,20 @@ AckUpdateResult CommandTracker::observe(
     std::lock_guard lock(mutex_);
     const auto found = pending_.find(key);
     if (found == pending_.end()) return AckUpdateResult::not_found;
+    const auto& current = found->second;
+    const bool delivery_expired =
+        current.state == PendingCommandState::awaiting_delivery &&
+        received_at_us >= current.command.valid_until_us;
+    const bool completion_expired =
+        current.state == PendingCommandState::awaiting_completion &&
+        received_at_us >= current.completion_deadline_us;
+    if (delivery_expired || completion_expired) {
+        record_outcome_locked({key, delivery_expired ? CommandTerminalState::expired
+                                                    : CommandTerminalState::completion_timeout,
+                               received_at_us});
+        pending_.erase(found);
+        return AckUpdateResult::not_found;
+    }
     if (const auto terminal = terminal_state(acknowledgement.result)) {
         record_outcome_locked({key, *terminal, received_at_us});
         pending_.erase(found);
@@ -97,7 +111,8 @@ CommandPollResult CommandTracker::poll(const std::uint64_t now_us) {
     for (auto iterator = pending_.begin(); iterator != pending_.end();) {
         auto& entry = iterator->second;
         std::optional<CommandTerminalState> terminal;
-        if (now_us >= entry.command.valid_until_us) {
+        if (entry.state == PendingCommandState::awaiting_delivery &&
+            now_us >= entry.command.valid_until_us) {
             terminal = CommandTerminalState::expired;
         } else if (entry.state == PendingCommandState::awaiting_completion) {
             if (now_us >= entry.completion_deadline_us)
