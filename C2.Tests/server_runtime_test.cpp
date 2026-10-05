@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <latch>
+#include <stdexcept>
 #include <thread>
 #include <variant>
 #include <vector>
@@ -933,3 +934,192 @@ TEST(ServerRuntimeDevelopmentPoseTest, RoutesToCurrentSessionAndWaitsForAssetRep
     EXPECT_TRUE(std::holds_alternative<c2::DispatchError>(server.set_development_pose(102, 0, 0, 0, 0, 19)));
 }
 }  // namespace
+
+namespace {
+void prepare_attack(c2::ServerRuntime& server, bool moving = false) {
+    const auto observer = registration(101, 1, c2::AssetRole::observation, 51101);
+    const auto effector = registration(201, 9, c2::AssetRole::effector, 60201);
+    const c2::Endpoint observer_source{"10.10.0.1", 40001}, effector_source{"10.10.0.2", 40002};
+    ASSERT_EQ(server.ingest(bytes(observer), observer_source, 100), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(effector), effector_source, 100), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(heartbeat(effector, 2)), effector_source, 101), c2::InboundResult::accepted);
+    ASSERT_EQ(server.ingest(bytes(pose(effector, 3, 0)), effector_source, 102), c2::InboundResult::accepted);
+    auto armed = effector_status(effector, 4);
+    armed.attack_armed = true; armed.tracking_track_id = 1;
+    ASSERT_EQ(server.ingest(bytes(armed), effector_source, 103), c2::InboundResult::accepted);
+    c2::TargetCoordinate target{{c2::protocol_version, 2, 104, c2::ComponentId::observation_asset,
+        c2::ComponentId::command_and_control, 101, 1}, 7, 104,
+        c2::CoordinateFrame::project_frame, 10, 0, 0, 0.9F};
+    target.velocity_valid = moving; target.vx_mps = moving ? 1.0F : 0.0F;
+    ASSERT_EQ(server.ingest(bytes(target), observer_source, 104), c2::InboundResult::accepted);
+    ASSERT_EQ(server.assign(1, 105).result, c2::AssignmentResult::assigned);
+}
+}
+
+TEST(ServerRuntimeFailureTest, FailedStartSendRemainsUncertainUntilAckAndBlocksUnassign) {
+    bool fail{};
+    c2::ServerRuntime server(config(), [&](auto, auto) { if (fail) throw std::runtime_error("injected send"); });
+    prepare_attack(server);
+    fail = true;
+    const auto result = server.attack(c2::AttackAction::start, 1, 100, 110);
+    ASSERT_TRUE(std::holds_alternative<c2::DispatchError>(result));
+    EXPECT_EQ(std::get<c2::DispatchError>(result), c2::DispatchError::delivery_uncertain);
+    const auto pending = server.pending_commands();
+    ASSERT_EQ(pending.size(), 1);
+    EXPECT_EQ(pending.front().delivery, c2::CommandDeliveryState::uncertain);
+    EXPECT_TRUE(server.assignment(1)->attack_started);
+    EXPECT_EQ(server.unassign(1), c2::AssignmentResult::operator_action_required);
+    c2::CommandAck ack{{c2::protocol_version, 5, 111, c2::ComponentId::effector_asset,
+        c2::ComponentId::command_and_control, 201, 9}, pending.front().key.command_id,
+        c2::CommandResult::completed, 0, 111};
+    EXPECT_EQ(server.ingest(bytes(ack), {"10.10.0.2", 40002}, 111), c2::InboundResult::accepted);
+    EXPECT_EQ(server.pending_command_count(), 0);
+    EXPECT_EQ(server.command_outcomes().back().state, c2::CommandTerminalState::completed);
+}
+
+TEST(ServerRuntimeFailureTest, StreamFailureBeforeStartLeavesNoRetryableAttackOrLatch) {
+    bool fail{};
+    std::size_t attacks{};
+    c2::ServerRuntime server(config(), [&](auto data, auto) {
+        const auto message = std::get<c2::Envelope>(c2::protobuf::decode(data));
+        if (std::holds_alternative<c2::TargetTrackUpdate>(message.payload) && fail)
+            throw std::runtime_error("stream failure");
+        if (std::holds_alternative<c2::AttackCommand>(message.payload)) ++attacks;
+    });
+    prepare_attack(server, true);
+    fail = true;
+    EXPECT_EQ(std::get<c2::DispatchError>(server.attack(c2::AttackAction::start, 1, 100, 110)),
+        c2::DispatchError::command_rejected);
+    EXPECT_EQ(server.pending_command_count(), 0);
+    EXPECT_FALSE(server.assignment(1)->attack_started);
+    EXPECT_EQ(server.retry_unacknowledged(120).resent, 0);
+    EXPECT_EQ(attacks, 0);
+    EXPECT_EQ(server.unassign(1), c2::AssignmentResult::completed);
+}
+
+TEST(ServerRuntimeFailureTest, OneRetryFailureDoesNotSkipHealthyAssets) {
+    auto cfg = config(); cfg.commands.delivery_ack_timeout_us = 10;
+    bool fail{}; std::vector<std::uint16_t> attempts;
+    c2::ServerRuntime server(cfg, [&](auto, const auto& endpoint) {
+        attempts.push_back(endpoint.port);
+        if (fail && endpoint.port == 51101) throw std::runtime_error("one failed asset");
+    });
+    for (std::uint64_t id = 101; id <= 102; ++id) {
+        const auto observer = registration(id, 1, c2::AssetRole::observation, static_cast<std::uint16_t>(51000 + id));
+        const c2::Endpoint source{"10.10.0.1", static_cast<std::uint16_t>(40000 + id)};
+        ASSERT_EQ(server.ingest(bytes(observer), source, 100), c2::InboundResult::accepted);
+        ASSERT_EQ(server.ingest(bytes(heartbeat(observer, 2)), source, 101), c2::InboundResult::accepted);
+        ASSERT_EQ(server.ingest(bytes(pose(observer, 3, 0)), source, 102), c2::InboundResult::accepted);
+        ASSERT_TRUE(std::holds_alternative<c2::ObservationTurretCommand>(server.command_observation(
+            id, c2::ObservationTurretCommandType::stop, 0, 0, 110)));
+    }
+    attempts.clear(); fail = true;
+    const auto retried = server.retry_unacknowledged(120);
+    EXPECT_EQ(attempts, (std::vector<std::uint16_t>{51101, 51102}));
+    EXPECT_EQ(retried.resent, 1); EXPECT_EQ(retried.send_failed, 1);
+    const auto pending = server.pending_commands();
+    ASSERT_EQ(pending.size(), 2);
+    EXPECT_EQ(pending[0].delivery, c2::CommandDeliveryState::uncertain);
+    EXPECT_EQ(pending[1].delivery, c2::CommandDeliveryState::sent);
+}
+
+TEST(ServerRuntimeFailureTest, SessionReplacementRetiresOldCommandsEvenIfSafetySendFails) {
+    bool fail{};
+    c2::ServerRuntime server(config(), [&](auto, auto) { if (fail) throw std::runtime_error("safety failed"); });
+    prepare_attack(server);
+    ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(server.point_effector(1, 110)));
+    fail = true;
+    const auto replacement = registration(201, 10, c2::AssetRole::effector, 60202);
+    EXPECT_EQ(server.ingest(bytes(replacement), {"10.10.0.3", 40003}, 111), c2::InboundResult::accepted);
+    EXPECT_EQ(server.pending_command_count(), 0);
+    EXPECT_EQ(server.assignment(1)->state, c2::AssignmentResult::assignment_lost);
+    EXPECT_EQ(server.command_outcomes().back().state, c2::CommandTerminalState::session_ended);
+}
+
+TEST(ServerRuntimeConcurrencyTest, StartAndUnassignHaveOnlySerializedOutcomes) {
+    for (int iteration = 0; iteration < 32; ++iteration) {
+        c2::ServerRuntime server(config(), [](auto, auto) {});
+        prepare_attack(server);
+        std::latch ready(2);
+        c2::AttackDispatchResult start;
+        c2::AssignmentResult unassigned{};
+        std::thread a([&] { ready.arrive_and_wait(); start = server.attack(c2::AttackAction::start, 1, 100, 110); });
+        std::thread b([&] { ready.arrive_and_wait(); unassigned = server.unassign(1); });
+        a.join(); b.join();
+        if (std::holds_alternative<c2::AttackCommand>(start)) {
+            EXPECT_EQ(unassigned, c2::AssignmentResult::operator_action_required);
+            EXPECT_EQ(server.pending_command_count(), 1);
+        } else {
+            EXPECT_EQ(unassigned, c2::AssignmentResult::completed);
+            EXPECT_EQ(server.pending_command_count(), 0);
+            EXPECT_FALSE(server.assignment(1)->attack_started);
+        }
+    }
+}
+
+TEST(ServerRuntimeConcurrencyTest, AssignAndSessionReplacementNeverLeaveOldActiveSession) {
+    for (int iteration = 0; iteration < 32; ++iteration) {
+        c2::ServerRuntime server(config(), [](auto, auto) {});
+        prepare_attack(server);
+        const auto replacement = registration(201, 10, c2::AssetRole::effector, 60202);
+        std::latch ready(2);
+        std::thread a([&] { ready.arrive_and_wait(); (void)server.assign(1, 110); });
+        std::thread b([&] { ready.arrive_and_wait(); (void)server.ingest(bytes(replacement), {"10.10.0.3", 40003}, 110); });
+        a.join(); b.join();
+        const auto assignment = server.assignment(1);
+        ASSERT_TRUE(assignment);
+        EXPECT_NE(assignment->state, c2::AssignmentResult::assigned);
+        EXPECT_EQ(server.pending_command_count(), 0);
+    }
+}
+
+TEST(ServerRuntimeConcurrencyTest, RetryAndSessionReplacementRetireAllOldPendingCommands) {
+    for (int iteration = 0; iteration < 32; ++iteration) {
+        auto cf = config();
+        cf.commands.delivery_ack_timeout_us = 10;
+        c2::ServerRuntime server(cf, [](auto, auto) {});
+        prepare_attack(server);
+        ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(server.point_effector(1, 110)));
+        const auto replacement = registration(201, 10, c2::AssetRole::effector, 60202);
+        std::latch ready(2);
+        std::thread retry([&] { ready.arrive_and_wait(); (void)server.retry_unacknowledged(120); });
+        std::thread retire([&] { ready.arrive_and_wait();
+            (void)server.ingest(bytes(replacement), {"10.10.0.3", 40003}, 120); });
+        retry.join(); retire.join();
+        EXPECT_EQ(server.pending_command_count(), 0);
+        ASSERT_EQ(server.command_outcomes().size(), 1);
+        EXPECT_EQ(server.command_outcomes().front().state, c2::CommandTerminalState::session_ended);
+        EXPECT_EQ(server.retry_unacknowledged(130).resent, 0);
+    }
+}
+
+TEST(ServerRuntimeTest, LegacyEmergencyStopAttemptsEveryRepetitionAfterSendFailure) {
+    unsigned attempts{};
+    c2::ServerRuntime server(config(), [&](auto, auto) { ++attempts; throw std::runtime_error("send"); });
+    const auto result = server.attack(c2::AttackAction::emergency_stop, 0, 0, 110);
+    ASSERT_TRUE(std::holds_alternative<c2::DispatchError>(result));
+    EXPECT_EQ(std::get<c2::DispatchError>(result), c2::DispatchError::delivery_uncertain);
+    EXPECT_EQ(attempts, config().emergency_stop_repetitions);
+}
+
+TEST(ServerRuntimeTest, LogsCommandContextAndIgnoresThrowingObserver) {
+    std::vector<c2::RuntimeEvent> events;
+    auto cf = config();
+    cf.event_sink = [&](const auto& event) { events.push_back(event); throw std::runtime_error("observer"); };
+    c2::ServerRuntime server(cf, [](auto, auto) {});
+    prepare_attack(server);
+    const auto result = server.attack(c2::AttackAction::start, 1, 100, 110);
+    ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(result));
+    const auto command_id = std::get<c2::AttackCommand>(result).command_id;
+    bool found{};
+    for (const auto& event : events) {
+        if (event.type != "command_send_attempt" || event.command_id != command_id) continue;
+        found = true;
+        EXPECT_EQ(event.asset_id, 201);
+        EXPECT_EQ(event.session_id, 9);
+        EXPECT_NE(event.detail.find("target=1"), std::string::npos);
+        EXPECT_NE(event.detail.find("endpoint=10.10.0.2:60201"), std::string::npos);
+    }
+    EXPECT_TRUE(found);
+    EXPECT_EQ(server.pending_command_count(), 1);
+}

@@ -21,6 +21,7 @@ ConsoleParseResult parse_console_command(const std::string_view line) {
     ConsoleCommand command;
     if (name == "assets") command.kind = ConsoleCommandKind::assets;
     else if (name == "targets") command.kind = ConsoleCommandKind::targets;
+    else if (name == "pending") command.kind = ConsoleCommandKind::pending;
     else if (name == "metrics") command.kind = ConsoleCommandKind::metrics;
     else if (name == "status") command.kind = ConsoleCommandKind::status;
     else if (name == "errors") command.kind = ConsoleCommandKind::errors;

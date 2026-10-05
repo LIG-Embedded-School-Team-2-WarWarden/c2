@@ -13,6 +13,7 @@ public:
     struct Transmission {
         std::vector<std::byte> datagram;
         Endpoint endpoint;
+        std::uint32_t command_id{};
     };
     struct PollResult {
         std::vector<Transmission> transmissions;
@@ -27,7 +28,7 @@ public:
                std::vector<std::byte> datagram, Endpoint endpoint, std::uint64_t now_us) {
         std::lock_guard lock(mutex_);
         pending_.insert_or_assign(key(source, command_id),
-            Entry{{std::move(datagram), std::move(endpoint)}, now_us, 1});
+            Entry{{std::move(datagram), std::move(endpoint), command_id}, now_us, 1});
     }
     void acknowledge(const CommandAck& ack) {
         std::lock_guard lock(mutex_);

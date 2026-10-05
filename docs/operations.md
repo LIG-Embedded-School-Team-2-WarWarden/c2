@@ -45,5 +45,48 @@ UDP 전달과 실장비 정지를 보장하지 않는다.
 - consumer 예외 이후 UDP 지속: UdpTransportMetricsTest.
 - 늦은 ACK, 명령 timeout, session 교체: CommandTrackerTest와 ServerRuntimeTest.
 
-현재 도구는 콘솔 기반 진단이다. production 외부 metric endpoint, 영속 structured log,
+현재 도구는 콘솔 기반 진단이다. production 외부 metric endpoint,
 인증/권한, 자동 restart 및 장비 승인 체계는 추가 요구사항과 배포 환경에 따라 설계한다.
+
+
+## 명령 부분 실패와 영속 이벤트
+
+송신 함수의 성공은 UDP 전달이나 실행 완료를 의미하지 않는다. `delivery_uncertain`은
+송신 예외가 발생하여 전달 여부를 확정할 수 없는 상태다. dynamic 명령은 pending을 유지하고
+동일 `(asset_id, session_id, command_id)`로 한도 내 재전송한다. `pending`에서
+SENT/UNCERTAIN/AWAITING_SEND와 ACK 단계, 시도 횟수를 확인하고 `outcomes`로 종결을 확인한다.
+`pending` 목록은 dynamic tracker만 표시하며 legacy pending은 기존 전체 count에 포함된다.
+필수 표적 스트림 송신이 START 전에 실패하면 START를 등록하지 않는다. START가 송신 단계에
+진입하면 공격 latch를 보수적으로 유지하므로 해제 전에 STOP/ESTOP 등 운영자 조치가 필요하다.
+재전송 한 건의 송신 예외는 다른 자산의 재전송을 중단하지 않으며 실패도 시도 한도에 포함된다.
+ESTOP 반복 송신은 일부 실패 이후에도 나머지 반복을 실행한다.
+
+기본 로그는 `logs/c2-events.jsonl`이다. `--event-log PATH`, `--event-log-max-bytes N`
+(기본 8388608, 최소 1024), `--event-log-retained-files N`(기본 3, 범위 1..100)으로 설정한다.
+현재 파일과 `.1`부터 `.N`까지 보존하며 `.1`이 가장 최근 archive다. 파일당 payload 한도를
+적용하고 기존 파일에 append한다. 같은 경로는 한 프로세스만 사용한다. 여러 인스턴스는
+별도 경로가 필요하다. `--event-log off`로 비활성화할 수 있다.
+
+schema_version=1, run_id, event_id, recorded_at_us(UTC), timestamp_us(업무 clock),
+asset_id, session_id, command_id, component_id, type, detail을 기록한다. command_prepared,
+command_send_attempt(kind/명령 유형/target/endpoint),
+command_send_succeeded/command_delivery_uncertain, command_outcome, inbound,
+assignment/unassignment, track_stream_send_failed 이벤트를 같은 key로 연결한다.
+command_outcome detail 값은 0 completed, 1 rejected, 2 failed, 3 expired,
+4 delivery_exhausted, 5 completion_timeout, 6 session_ended, 7 cancelled_before_send다.
+세션 등록·교체·거부와 ACK 결과는 inbound의 kind/result/ack와 identity로 추적한다.
+
+각 이벤트를 동기적으로 flush하므로 로그 I/O는 처리 지연과 큐 대기에 영향을 준다.
+flush는 fsync나 전원 장애 내구성을 보장하지 않는다. 전원 장애의 마지막 부분 레코드는
+불완전할 수 있으며 분석 시 JSON 파싱 실패를 구분해야 한다. 로그는 복구용 상태 저장소가
+아니므로 재기동 시 pending을 자동 복원하지 않는다. 시작 시 파일을 열지 못하면 기동을
+실패시키며 실행 중 쓰기·회전 실패와 과대 레코드는 `event_log_write_errors`로 집계한다.
+`metrics`의 event_log_written/rotations도 확인한다. callback 예외는 명령 상태 전이에
+전파하지 않는다. EventSink는 동시 호출 가능하고 빠르게 반환해야 하며 Runtime 수명주기
+메서드로 재진입하면 안 된다. tracker 이벤트 자체는 tracker 잠금 밖에서 호출한다.
+
+실제 socket 장애 재현은 `scripts/run_udp_reliability_probe.ps1`을 실행한다.
+200개 STOP의 burst와 명령/ACK 손실·중복·순서 변경을 측정하며 결과는
+`build/udp-reliability.json`에 저장한다. 완료율과 simulated unique execution, handler 오류를
+검증하고 ACK 지연·queue high-water/drop을 보고한다. 큐 포화의 결정적 검증은 별도
+DatagramProcessorTest가 담당하며 실제 UDP 실행에서 drop이 항상 발생하도록 강제하지 않는다.

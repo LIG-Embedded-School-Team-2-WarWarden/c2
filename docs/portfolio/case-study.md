@@ -52,3 +52,12 @@ production handler에 무한 대기나 무제한 외부 I/O를 넣지 않아야 
 단일 worker는 순서와 동시성 분석을 단순하게 만들지만 처리량 확장에는 한계가 있다.
 현재 microbenchmark와 큐 지표로 병목을 관찰할 근거를 마련했다. 복수 worker나 IOCP,
 Linux epoll, lock-free queue 도입은 측정과 운용 요구로 정당화해야 한다.
+
+
+## 부분 실패와 경쟁 검증 확장
+
+송신 예외를 전달 불확실 상태로 다루고, START 준비 실패와 송신 후 불확실성을 구분했다.
+세션 교체와 할당·해제·재시도 경쟁을 동일 수명주기 규칙으로 조율하며 개별 송신 실패가
+다른 자산 재시도를 중단하지 않게 했다. bounded JSONL로 재시작 전 사건을 보존한다.
+결정과 비용은 [ADR-011](../decisions/ADR-011-command-partial-failure-and-events.md),
+실제 UDP 장애 주입의 측정 범위와 증거는 [benchmark](benchmark.md)에 기술했다.

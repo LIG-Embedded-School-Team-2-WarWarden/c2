@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <latch>
+#include <memory>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -219,4 +221,27 @@ TEST(CommandTrackerTest, SerializesTerminalAckAndRetryExhaustionRace) {
     EXPECT_TRUE(outcomes.front().state == c2::CommandTerminalState::completed ||
                 outcomes.front().state ==
                     c2::CommandTerminalState::delivery_exhausted);
+}
+
+TEST(CommandTrackerFailureTest, CanCancelOnlyBeforeSendAndObservabilityRunsOutsideLock) {
+    std::unique_ptr<c2::CommandTracker> tracker;
+    std::size_t logged{};
+    tracker = std::make_unique<c2::CommandTracker>(c2::CommandTrackerConfig{}, [&](const auto&) {
+        ++logged; (void)tracker->pending_count();
+    });
+    ASSERT_EQ(tracker->track(command(1, 7, 1)), c2::CommandTrackResult::tracked);
+    EXPECT_TRUE(tracker->cancel_before_send({1, 7, 1}, 101));
+    EXPECT_EQ(tracker->outcomes().back().state, c2::CommandTerminalState::cancelled_before_send);
+    ASSERT_EQ(tracker->track(command(1, 7, 2)), c2::CommandTrackResult::tracked);
+    tracker->record_send({1, 7, 2}, false, 102);
+    EXPECT_FALSE(tracker->cancel_before_send({1, 7, 2}, 103));
+    EXPECT_EQ(tracker->pending({1, 7, 2})->delivery, c2::CommandDeliveryState::uncertain);
+    EXPECT_GE(logged, 4);
+}
+
+TEST(CommandTrackerFailureTest, ThrowingEventSinkCannotBreakStateTransitions) {
+    c2::CommandTracker tracker({}, [](const auto&) { throw std::runtime_error("logger failed"); });
+    ASSERT_EQ(tracker.track(command(1, 7, 1)), c2::CommandTrackResult::tracked);
+    EXPECT_EQ(tracker.observe(ack(1, 7, 1, c2::CommandResult::completed), 110), c2::AckUpdateResult::terminal);
+    EXPECT_EQ(tracker.pending_count(), 0);
 }

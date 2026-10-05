@@ -74,6 +74,9 @@ ServerOptions parse_server_options(
         else if (name == "--observation-command-port") options.observation_command_port = port(value);
         else if (name == "--effector-command-port") options.effector_command_port = port(value);
         else if (name == "--effector-status-port") options.effector_status_port = port(value);
+        else if (name == "--event-log") options.event_log.path = value == "off" ? "" : std::string(value);
+        else if (name == "--event-log-max-bytes") options.event_log.maximum_file_bytes = positive_number<std::uint64_t>(value, "event log bytes");
+        else if (name == "--event-log-retained-files") options.event_log.retained_files = positive_number<std::uint32_t>(value, "event log retained files");
         else if (name == "--ingress-queue-capacity") options.ingress.maximum_queued_datagrams = positive_number<std::size_t>(value, "ingress queue capacity");
         else if (name == "--ingress-queue-bytes") options.ingress.maximum_queued_bytes = positive_number<std::size_t>(value, "ingress queue bytes");
         else if (name == "--asset-port") options.asset_port = port(value);
@@ -117,6 +120,8 @@ ServerOptions parse_server_options(
     (void)microseconds(options.command_validity_ms, "command validity");
     (void)microseconds(options.acknowledgement_timeout_ms, "acknowledgement timeout");
     (void)microseconds(options.completion_timeout_ms, "completion timeout");
+    if (options.event_log.maximum_file_bytes < 1024 || options.event_log.retained_files > 100)
+        throw std::invalid_argument("invalid event log rotation limits");
     return options;
 }
 

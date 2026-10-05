@@ -13,7 +13,7 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
       sender_(std::move(sender)),
       registry_(config_.registry),
       tracks_(config_.tracks),
-      command_tracker_(config_.commands),
+      command_tracker_(config_.commands, config_.event_sink),
       assignments_(config_.assignments),
       state_(config_.state),
       telemetry_(config_.maximum_error_history),
@@ -23,7 +23,7 @@ ServerRuntime::ServerRuntime(ServerRuntimeConfig config, DatagramSender sender)
       attack_commands_(config_.attack_commands),
       effector_identity_(config_.effector_commands.first_command_id,
                          config_.effector_commands.first_sequence),
-      track_updates_(sender_),
+      track_updates_(sender_, config_.event_sink),
       heartbeats_(sender_),
       assignment_coordinator_(registry_, tracks_, assignments_, track_updates_, config_.assignments),
       legacy_commands_(config_.command_ack_timeout_us, config_.command_max_attempts),
@@ -47,9 +47,13 @@ InboundResult ServerRuntime::ingest(
     if (!std::holds_alternative<Envelope>(decoded)) {
         rejection_log_.record(InboundRejectionCategory::invalid_packet,
             MessageKind::unspecified, nullptr, AssetRegistryResult::invalid, received_at_us);
+        emit_event(config_.event_sink, {"invalid_packet", received_at_us, 0, 0, 0, "decode"});
         return InboundResult::invalid_packet;
     }
-    return asset_inbound_.receive(std::get<Envelope>(decoded), source, received_at_us);
+    const auto& envelope = std::get<Envelope>(decoded);
+    const auto result = asset_inbound_.receive(envelope, source, received_at_us);
+    audit_inbound(envelope, result, received_at_us);
+    return result;
 }
 
 DevelopmentPoseDispatchResult ServerRuntime::set_development_pose(
@@ -90,7 +94,9 @@ DevelopmentPoseDispatchResult ServerRuntime::set_development_pose(
                                    encoded, asset->command_endpoint, now_us,
                                    command.valid_until_us}) != CommandTrackResult::tracked)
             return DispatchError::command_rejected;
-        sender_(encoded, asset->command_endpoint);
+        if (!send_tracked(encoded, asset->command_endpoint,
+                          {asset->asset_id, asset->session_id, command.command_id}, now_us))
+            return DispatchError::delivery_uncertain;
         return command;
     } catch (const std::exception&) {
         return DispatchError::command_rejected;
@@ -120,7 +126,9 @@ ObservationDispatchResult ServerRuntime::command_observation(
                                command.valid_until_us});
         if (tracked != CommandTrackResult::tracked)
             return DispatchError::command_rejected;
-        sender_(encoded, asset->command_endpoint);
+        if (!send_tracked(encoded, asset->command_endpoint,
+                          {asset->asset_id, asset->session_id, command.command_id}, now_us))
+            return DispatchError::delivery_uncertain;
         return command;
     } catch (const std::exception&) {
         return DispatchError::command_rejected;
@@ -130,8 +138,14 @@ ObservationDispatchResult ServerRuntime::command_observation(
 InboundResult ServerRuntime::ingest(
     const std::span<const std::byte> datagram, const std::uint64_t received_at_us) {
     const auto decoded = protobuf::decode(datagram);
-    if (!std::holds_alternative<Envelope>(decoded)) return InboundResult::invalid_packet;
-    return legacy_inbound_.receive(std::get<Envelope>(decoded), received_at_us);
+    if (!std::holds_alternative<Envelope>(decoded)) {
+        emit_event(config_.event_sink, {"invalid_packet", received_at_us, 0, 0, 0, "legacy decode"});
+        return InboundResult::invalid_packet;
+    }
+    const auto& envelope = std::get<Envelope>(decoded);
+    const auto result = legacy_inbound_.receive(envelope, received_at_us);
+    audit_inbound(envelope, result, received_at_us);
+    return result;
 }
 
 ObservationDispatchResult ServerRuntime::command_observation(
@@ -141,8 +155,9 @@ ObservationDispatchResult ServerRuntime::command_observation(
         return *error;
     try {
         auto command = observation_commands_.create(type, pan_deg, tilt_deg, now_us);
-        dispatch_tracked(command, config_.observation_endpoint,
-                         ComponentId::observation_asset, now_us);
+        if (!dispatch_tracked(command, config_.observation_endpoint,
+                              ComponentId::observation_asset, now_us))
+            return DispatchError::delivery_uncertain;
         return command;
     } catch (const std::exception&) {
         return DispatchError::command_rejected;
@@ -154,7 +169,7 @@ EffectorDispatchResult ServerRuntime::point_effector(
     std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     auto assignment = assignments_.assignment(target_id);
     if (!assignment && tracks_.track(target_id, now_us)) {
-        const auto decision = assign(target_id, now_us);
+        const auto decision = assignment_coordinator_.assign(target_id, now_us);
         if (decision.result != AssignmentResult::assigned)
             return DispatchError::command_rejected;
         assignment = decision.assignment;
@@ -187,7 +202,9 @@ EffectorDispatchResult ServerRuntime::point_effector(
             CommandTrackResult::tracked)
             return DispatchError::command_rejected;
         routed_points_.record(command);
-        sender_(encoded, asset->command_endpoint);
+        if (!send_tracked(encoded, asset->command_endpoint,
+                          {asset->asset_id, asset->session_id, command.command_id}, now_us))
+            return DispatchError::delivery_uncertain;
         return command;
     }
     if (const auto error = connection_error(ComponentId::effector_asset, now_us))
@@ -199,8 +216,9 @@ EffectorDispatchResult ServerRuntime::point_effector(
     effector_identity_.assign(command);
     if (!attack_commands_.record_pointing_command(command))
         return DispatchError::command_rejected;
-    dispatch_tracked(command, config_.effector_endpoint,
-                     ComponentId::effector_asset, now_us);
+    if (!dispatch_tracked(command, config_.effector_endpoint,
+                          ComponentId::effector_asset, now_us))
+        return DispatchError::delivery_uncertain;
     return command;
 }
 
@@ -237,6 +255,8 @@ AttackDispatchResult ServerRuntime::attack(
         command.header.asset_id = asset->asset_id;
         command.header.session_id = asset->session_id;
         effector_identity_.assign(command);
+        if (!track_updates_.publish(*track, *asset, now_us))
+            return DispatchError::command_rejected;
         const auto encoded = protobuf::encode(Envelope{command});
         if (command_tracker_.track({asset->asset_id, asset->session_id,
                                     command.command_id, encoded,
@@ -244,11 +264,16 @@ AttackDispatchResult ServerRuntime::attack(
                                     command.valid_until_us}) !=
             CommandTrackResult::tracked)
             return DispatchError::command_rejected;
-        if (action == AttackAction::start &&
-            !assignments_.mark_attack_started(target_id))
+        if (action == AttackAction::start && !assignments_.mark_attack_started(target_id)) {
+            (void)command_tracker_.cancel_before_send(
+                {asset->asset_id, asset->session_id, command.command_id}, now_us);
             return DispatchError::command_rejected;
-        track_updates_.publish(*track, *asset, now_us);
-        sender_(encoded, asset->command_endpoint);
+        }
+        // This is a conservative "may have started" latch requiring explicit safety handling:
+        // a throwing sender may have handed the datagram to the OS already.
+        if (!send_tracked(encoded, asset->command_endpoint,
+                          {asset->asset_id, asset->session_id, command.command_id}, now_us))
+            return DispatchError::delivery_uncertain;
         return command;
     }
     if (action != AttackAction::stop && action != AttackAction::emergency_stop) {
@@ -264,11 +289,16 @@ AttackDispatchResult ServerRuntime::attack(
                                  ? config_.emergency_stop_repetitions
                                  : 1U;
     if (action == AttackAction::emergency_stop) {
+        bool uncertain{};
         for (std::uint32_t attempt = 0; attempt < repetitions; ++attempt)
-            dispatch(command, config_.effector_endpoint);
+            if (!send_safety(protobuf::encode(Envelope{command}), config_.effector_endpoint,
+                             {0, 0, command.command_id}, now_us))
+                uncertain = true;
+        if (uncertain) return DispatchError::delivery_uncertain;
     } else {
-        dispatch_tracked(command, config_.effector_endpoint,
-                         ComponentId::effector_asset, now_us);
+        if (!dispatch_tracked(command, config_.effector_endpoint,
+                              ComponentId::effector_asset, now_us))
+            return DispatchError::delivery_uncertain;
     }
     return command;
 }
@@ -313,16 +343,26 @@ AttackDispatchResult ServerRuntime::dispatch_safety_command(
             CommandTrackResult::tracked)
             return DispatchError::command_rejected;
     }
-    for (std::uint32_t attempt = 0; attempt < repetitions; ++attempt)
-        sender_(encoded, asset.command_endpoint);
+    bool uncertain{};
+    for (std::uint32_t attempt = 0; attempt < repetitions; ++attempt) {
+        const CommandKey key{asset.asset_id, asset.session_id, command.command_id};
+        const bool sent = action == AttackAction::stop
+            ? send_tracked(encoded, asset.command_endpoint, key, now_us)
+            : send_safety(encoded, asset.command_endpoint, key, now_us);
+        uncertain |= !sent;
+    }
+    if (uncertain) return DispatchError::delivery_uncertain;
     return command;
 }
 
 AssignmentResult ServerRuntime::unassign(const std::uint64_t track_id) {
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     const auto result = assignments_.unassign(track_id);
     if (result == AssignmentResult::completed) {
         routed_points_.erase(track_id);
     }
+    emit_event(config_.event_sink, {"unassignment_decision", 0, 0, 0, 0,
+        "track=" + std::to_string(track_id) + " result=" + std::to_string(static_cast<int>(result))});
     return result;
 }
 
@@ -348,22 +388,30 @@ EmergencyStopResult ServerRuntime::emergency_stop_all(
 }
 
 CommandRetryResult ServerRuntime::retry_unacknowledged(const std::uint64_t now_us) {
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     const auto legacy = legacy_commands_.poll(now_us);
     CommandRetryResult result{0, legacy.exhausted};
     for (const auto& retry : legacy.transmissions) {
-        sender_(retry.datagram, retry.endpoint);
-        ++result.resent;
+        if (send_safety(retry.datagram, retry.endpoint,
+                        {0, 0, retry.command_id}, now_us)) ++result.resent;
+        else ++result.send_failed;
     }
     const auto dynamic = command_tracker_.poll(now_us);
     for (const auto& retry : dynamic.transmissions) {
-        sender_(retry.datagram, retry.endpoint);
-        ++result.resent;
+        const auto pending = command_tracker_.pending(retry.key);
+        if (!pending || pending->state != PendingCommandState::awaiting_delivery) continue;
+        if (send_tracked(retry.datagram, retry.endpoint, retry.key, now_us)) ++result.resent;
+        else ++result.send_failed;
     }
     for (const auto& outcome : dynamic.finalized) {
         if (outcome.state == CommandTerminalState::delivery_exhausted)
             ++result.exhausted;
     }
     return result;
+}
+
+std::vector<PendingCommandSnapshot> ServerRuntime::pending_commands() const {
+    return command_tracker_.pending_commands();
 }
 
 std::size_t ServerRuntime::pending_command_count() const {
@@ -399,13 +447,23 @@ std::vector<TrackSnapshot> ServerRuntime::tracks(const std::uint64_t now_us) {
 
 AssignmentDecision ServerRuntime::assign(
     const std::uint64_t track_id, const std::uint64_t now_us) {
-    return assignment_coordinator_.assign(track_id, now_us);
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
+    const auto decision = assignment_coordinator_.assign(track_id, now_us);
+    if (decision.assignment) emit_event(config_.event_sink, {"assignment_decision", now_us,
+        decision.assignment->effector_asset_id, decision.assignment->effector_session_id, 0,
+        "track=" + std::to_string(track_id) + " result=" + std::to_string(static_cast<int>(decision.result))});
+    return decision;
 }
 
 AssignmentDecision ServerRuntime::assign(
     const std::uint64_t track_id, const std::uint64_t effector_asset_id,
     const std::uint64_t now_us) {
-    return assignment_coordinator_.assign(track_id, now_us, effector_asset_id);
+    std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
+    const auto decision = assignment_coordinator_.assign(track_id, now_us, effector_asset_id);
+    if (decision.assignment) emit_event(config_.event_sink, {"assignment_decision", now_us,
+        decision.assignment->effector_asset_id, decision.assignment->effector_session_id, 0,
+        "track=" + std::to_string(track_id) + " result=" + std::to_string(static_cast<int>(decision.result))});
+    return decision;
 }
 
 std::optional<AssetAssignment> ServerRuntime::assignment(
@@ -448,13 +506,73 @@ void ServerRuntime::dispatch(const Message& message, const Endpoint& endpoint) {
 }
 
 template <typename Message>
-void ServerRuntime::dispatch_tracked(
+bool ServerRuntime::dispatch_tracked(
     const Message& message, const Endpoint& endpoint,
     const ComponentId acknowledgement_source, const std::uint64_t now_us) {
     auto encoded = protobuf::encode(Envelope{message});
     legacy_commands_.track(acknowledgement_source, message.command_id,
                            encoded, endpoint, now_us);
-    sender_(encoded, endpoint);
+    return send_safety(encoded, endpoint, {0, 0, message.command_id}, now_us);
 }
 
+void ServerRuntime::audit_inbound(const Envelope& envelope, InboundResult result,
+                                  std::uint64_t received_at_us) const {
+    if (!config_.event_sink) return;
+    std::visit([&](const auto& message) {
+        if constexpr (requires { message.header; }) {
+            std::uint32_t command_id{};
+            if constexpr (requires { message.command_id; }) command_id = message.command_id;
+            std::string detail = "kind=" + std::to_string(static_cast<int>(message_kind(envelope))) +
+                                 " result=" + std::to_string(static_cast<int>(result));
+            if constexpr (requires { message.result; })
+                detail += " ack=" + std::to_string(static_cast<int>(message.result));
+            emit_event(config_.event_sink, {result == InboundResult::accepted ? "inbound_accepted" : "inbound_rejected",
+                received_at_us, message.header.asset_id, message.header.session_id, command_id,
+                detail, static_cast<std::uint32_t>(message.header.source_id)});
+        }
+    }, envelope.payload);
+}
+
+bool ServerRuntime::send_tracked(std::span<const std::byte> bytes, const Endpoint& endpoint,
+                                const CommandKey& key, std::uint64_t now_us) noexcept {
+    audit_outbound(bytes, endpoint, now_us);
+    bool succeeded{};
+    try { sender_(bytes, endpoint); succeeded = true; } catch (...) {}
+    command_tracker_.record_send(key, succeeded, now_us);
+    return succeeded;
+}
+bool ServerRuntime::send_safety(std::span<const std::byte> bytes, const Endpoint& endpoint,
+                               const CommandKey& key, std::uint64_t now_us) noexcept {
+    audit_outbound(bytes, endpoint, now_us);
+    bool succeeded{};
+    try { sender_(bytes, endpoint); succeeded = true; } catch (...) {}
+    emit_event(config_.event_sink, {succeeded ? "datagram_send_succeeded" : "datagram_delivery_uncertain",
+        now_us, key.asset_id, key.session_id, key.command_id, endpoint.address + ":" + std::to_string(endpoint.port)});
+    return succeeded;
+}
+
+void ServerRuntime::audit_outbound(std::span<const std::byte> bytes, const Endpoint& endpoint,
+                                   std::uint64_t now_us) const noexcept {
+    if (!config_.event_sink) return;
+    try {
+        const auto decoded = protobuf::decode(bytes);
+        const auto* envelope = std::get_if<Envelope>(&decoded);
+        if (!envelope) return;
+        std::visit([&](const auto& message) {
+            if constexpr (requires { message.command_id; }) {
+                std::string detail = "kind=" + std::to_string(static_cast<int>(message_kind(*envelope))) +
+                    " endpoint=" + endpoint.address + ":" + std::to_string(endpoint.port);
+                if constexpr (requires { message.command_type; })
+                    detail += " command_type=" + std::to_string(static_cast<int>(message.command_type));
+                if constexpr (requires { message.action; })
+                    detail += " action=" + std::to_string(static_cast<int>(message.action));
+                if constexpr (requires { message.target_id; })
+                    detail += " target=" + std::to_string(message.target_id);
+                emit_event(config_.event_sink, {"command_send_attempt", now_us,
+                    message.header.asset_id, message.header.session_id, message.command_id,
+                    detail, static_cast<std::uint32_t>(message.header.destination_id)});
+            }
+        }, envelope->payload);
+    } catch (...) {}
+}
 } // namespace c2

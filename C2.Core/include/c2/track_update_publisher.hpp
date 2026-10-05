@@ -1,6 +1,7 @@
 #pragma once
 #include "c2/asset_registry.hpp"
 #include "c2/datagram_sender.hpp"
+#include "c2/event_log.hpp"
 #include "c2/track_store.hpp"
 #include "c2/command_identity.hpp"
 #include "c2/protobuf_codec.hpp"
@@ -12,13 +13,14 @@
 namespace c2 {
 class TrackUpdatePublisher final {
 public:
-    explicit TrackUpdatePublisher(DatagramSender sender) : sender_(std::move(sender)) {
+    explicit TrackUpdatePublisher(DatagramSender sender, EventSink events = {})
+        : sender_(std::move(sender)), events_(std::move(events)) {
         if (!sender_) throw std::invalid_argument("datagram sender must be set");
     }
-    void publish(const TrackSnapshot& track, const AssetSnapshot& asset, std::uint64_t now_us) {
+    bool publish(const TrackSnapshot& track, const AssetSnapshot& asset, std::uint64_t now_us) {
         const auto& measurement = track.measurement;
         if (!measurement.velocity_valid || asset.role != AssetRole::effector ||
-            asset.connection_state != AssetConnectionState::connected) return;
+            asset.connection_state != AssetConnectionState::connected) return true;
         TargetTrackUpdate update{
             {protocol_version, 1, now_us, ComponentId::command_and_control,
              ComponentId::effector_asset, asset.asset_id, asset.session_id},
@@ -34,11 +36,18 @@ public:
         }
         if (validate(update).valid()) {
             const auto bytes = protobuf::encode(Envelope{update});
-            sender_(bytes, asset.command_endpoint);
+            try { sender_(bytes, asset.command_endpoint); return true; }
+            catch (...) {
+                emit_event(events_, {"track_stream_send_failed", now_us, asset.asset_id,
+                    asset.session_id, 0, std::to_string(track.track_id)});
+                return false;
+            }
         }
+        return false;
     }
 private:
     DatagramSender sender_;
+    EventSink events_;
     std::mutex mutex_;
     std::uint32_t sequence_{1};
 };
