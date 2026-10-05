@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "captured_at_utc": "2026-10-05T09:02:06.4906924Z",
+  "git_commit": "9dff724a81cc348df43cf47353dfb72786f87369",
+  "tracked_working_tree_dirty": false,
+  "untracked_files_count": 2,
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+    "logical_processors": 8,
+    "configuration": "Release"
+  },
+  "scope": "Real loopback UDP relays + bounded server ingress + command ACK tracker; scripted idempotent STOP simulator, no physical device. Logging disabled.",
+  "runs": [
+    {
+      "schema_version": 1,
+      "scenario": "burst",
+      "commands": 200,
+      "completed": 200,
+      "completion_rate": 1,
+      "unique_simulated_executions": 200,
+      "command_transmissions": 200,
+      "injected_command_drops": 0,
+      "injected_ack_drops": 0,
+      "injected_duplicates": 0,
+      "reordered_pairs": 0,
+      "queue_capacity": 64,
+      "queue_high_water": 6,
+      "queue_dropped_full": 0,
+      "handler_errors": 0,
+      "ack_p50_us": 3178.2,
+      "ack_p95_us": 4248.3,
+      "ack_p99_us": 4277.6
+    },
+    {
+      "schema_version": 1,
+      "scenario": "faults",
+      "commands": 200,
+      "completed": 200,
+      "completion_rate": 1,
+      "unique_simulated_executions": 200,
+      "command_transmissions": 280,
+      "injected_command_drops": 50,
+      "injected_ack_drops": 40,
+      "injected_duplicates": 50,
+      "reordered_pairs": 50,
+      "queue_capacity": 64,
+      "queue_high_water": 8,
+      "queue_dropped_full": 0,
+      "handler_errors": 0,
+      "ack_p50_us": 4962.9,
+      "ack_p95_us": 45378.2,
+      "ack_p99_us": 73537.6
+    }
+  ]
+}
