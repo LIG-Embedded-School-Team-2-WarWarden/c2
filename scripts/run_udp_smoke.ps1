@@ -253,6 +253,11 @@ try {
         'arm 1',
         'start 1 100'
     )) {
+        if ($command -eq 'arm 1') {
+            # A manual angle command is not proof of a tracked output target.
+            # Wait for a new automatic-track report before requesting ARM.
+            Wait-OutputPattern $server 'tracking_track=1[^\r\n]*status_current=yes' 10000 'assets'
+        }
         $server.StandardInput.WriteLine($command)
         ++$sent
         Wait-SentCount $server $sent

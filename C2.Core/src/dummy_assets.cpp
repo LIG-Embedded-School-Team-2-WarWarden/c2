@@ -276,7 +276,9 @@ ProcessedCommand DummyEffectorAsset::handle(
         error_code = dummy_error::expired_command;
         detail = "expired effector pointing command";
     } else {
-        current_target_id_ = command.target_id;
+        // Manual pointing does not designate an output target or retain tracking.
+        safe_stop(TrackingStopReason::operator_stop, 0);
+        status_.tracking_track_id = 0;
         status_.target_pan_deg = command.target_pan_deg;
         status_.target_tilt_deg = command.target_tilt_deg;
         status_.current_pan_deg = command.target_pan_deg;
@@ -333,7 +335,8 @@ ProcessedCommand DummyEffectorAsset::handle(
         result = CommandResult::rejected;
         error_code = dummy_error::invalid_state;
         detail = "effector is not ready";
-    } else if (!status_.aligned || command.target_id != current_target_id_) {
+    } else if (!status_.aligned || !target_update_ || now_us >= target_update_->valid_until_us ||
+               command.target_id != target_update_->track_id) {
         result = CommandResult::rejected;
         error_code = dummy_error::not_aligned;
         detail = "effector is not aligned with the requested target";
@@ -346,7 +349,7 @@ ProcessedCommand DummyEffectorAsset::handle(
     } else {
         status_.attack_active = true;
         status_.automatic_tracking_active = true;
-        status_.tracking_track_id = current_target_id_;
+        status_.tracking_track_id = target_update_->track_id;
         status_.tracking_stop_reason = TrackingStopReason::none;
         status_.state = EffectorState::active;
         const auto duration_us = static_cast<std::uint64_t>(command.duration_ms) * 1000U;
@@ -378,7 +381,6 @@ bool DummyEffectorAsset::handle(
         }
     }
     target_update_ = update;
-    current_target_id_ = update.track_id;
     status_.tracking_track_id = update.track_id;
     status_.last_target_measurement_time_us = update.measurement_time_us;
     status_.tracking_stop_reason = TrackingStopReason::none;
@@ -491,7 +493,6 @@ ProcessedCommand DummyEffectorAsset::handle(
         pose_.z_m = command.z_m;
         pose_.azimuth_deg = command.azimuth_deg;
         target_update_.reset();
-        current_target_id_ = 0;
         status_.aligned = false;
         status_.tracking_track_id = 0;
     }

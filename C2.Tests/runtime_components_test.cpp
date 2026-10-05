@@ -1,6 +1,5 @@
 #include "pch.h"
 #include "c2/command_identity.hpp"
-#include "c2/routed_point_store.hpp"
 #include "c2/inbound_rejection_log.hpp"
 #include "c2/legacy_command_tracker.hpp"
 #include "c2/track_update_publisher.hpp"
@@ -34,20 +33,6 @@ TEST(CommandIdentityTest, WrapSkipsZeroAcrossCommandTypes) {
     EXPECT_EQ(point.command_id, std::numeric_limits<std::uint32_t>::max());
     EXPECT_EQ(attack.command_id, 1);
     EXPECT_EQ(attack.header.sequence, 1);
-}
-
-TEST(RoutedPointStoreTest, RequiresMatchingSessionAndUnexpiredCommand) {
-    c2::RoutedPointStore points;
-    c2::EffectorTurretCommand command;
-    command.header.asset_id = 201; command.header.session_id = 7;
-    command.target_id = 42; command.valid_until_us = 200;
-    points.record(command);
-    EXPECT_TRUE(points.matches(42, 201, 7, 199));
-    EXPECT_FALSE(points.matches(42, 201, 8, 199));
-    EXPECT_FALSE(points.matches(42, 202, 7, 199));
-    EXPECT_FALSE(points.matches(42, 201, 7, 200));
-    points.erase(42);
-    EXPECT_FALSE(points.matches(42, 201, 7, 199));
 }
 
 TEST(InboundRejectionLogTest, BoundsHistoryAndReturnsIndependentSnapshots) {

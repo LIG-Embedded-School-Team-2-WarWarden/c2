@@ -69,6 +69,46 @@ TEST(TargetVelocityContractTest, RotatesSensorVelocityWithoutApplyingTranslation
     EXPECT_FLOAT_EQ(rotated.z_mps, -1.0F);
 }
 
+TEST(ManualPointingTest, ClearsOutputAndTrackAndCannotAuthorizeAttack) {
+    auto asset = effector();
+    ASSERT_TRUE(asset.handle(update(), 1'000'000));
+    ASSERT_FALSE(asset.control_step(1'000'000));
+    ASSERT_EQ(asset.handle(attack(1, c2::AttackAction::arm, 1'000'001), 1'000'001)
+                  .acknowledgement.result, c2::CommandResult::completed);
+    ASSERT_EQ(asset.handle(attack(2, c2::AttackAction::start, 1'000'002), 1'000'002)
+                  .acknowledgement.result, c2::CommandResult::completed);
+    c2::EffectorTurretCommand manual{
+        {c2::protocol_version, 3, 1'000'003, c2::ComponentId::command_and_control,
+         c2::ComponentId::effector_asset, 201, 301},
+        3, 22, 3, 1'500'003};
+    EXPECT_EQ(asset.handle(manual, 1'000'003).acknowledgement.result,
+              c2::CommandResult::completed);
+    const auto status = asset.status(1'000'004);
+    EXPECT_FLOAT_EQ(status.current_pan_deg, 22);
+    EXPECT_FLOAT_EQ(status.current_tilt_deg, 3);
+    EXPECT_EQ(status.tracking_track_id, 0);
+    EXPECT_FALSE(status.automatic_tracking_active);
+    EXPECT_FALSE(status.attack_active);
+    EXPECT_FALSE(status.attack_armed);
+    EXPECT_FALSE(asset.control_step(1'000'005));
+    EXPECT_FLOAT_EQ(asset.status(1'000'005).current_pan_deg, 22);
+    EXPECT_EQ(asset.handle(attack(4, c2::AttackAction::arm, 1'000'006), 1'000'006)
+                  .acknowledgement.result, c2::CommandResult::rejected);
+    EXPECT_EQ(asset.handle(attack(5, c2::AttackAction::start, 1'000'007), 1'000'007)
+                  .acknowledgement.result, c2::CommandResult::rejected);
+    EXPECT_TRUE(asset.handle(manual, 1'000'008).duplicate);
+}
+
+TEST(ManualPointingTest, ExpiredStreamCannotAuthorizeArmEvenWhileAligned) {
+    auto asset = effector();
+    auto track = update();
+    track.valid_until_us = 1'000'010;
+    ASSERT_TRUE(asset.handle(track, 1'000'000));
+    ASSERT_FALSE(asset.control_step(1'000'000));
+    EXPECT_EQ(asset.handle(attack(1, c2::AttackAction::arm, 1'000'010), 1'000'010)
+                  .acknowledgement.result, c2::CommandResult::rejected);
+}
+
 TEST(ContinuousTrackingTest, DeadReckonsBetweenMeasurementsAndRoundTripsTrackStream) {
     auto asset = effector();
     const auto track = update();

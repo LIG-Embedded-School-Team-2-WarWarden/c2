@@ -73,7 +73,7 @@ TEST(DevelopmentPoseTest, RejectsChangesDuringOperationAndRestoresStartupPoseOnR
     c2::DummyEffectorAsset pointer(initial);
     const c2::EffectorTurretCommand point{{c2::protocol_version, 1, 10,
         c2::ComponentId::command_and_control, c2::ComponentId::effector_asset},
-        1, 7, 20, 0, 100};
+        1, 20, 0, 100};
     ASSERT_EQ(pointer.handle(point, 11).acknowledgement.result, c2::CommandResult::completed);
     command.header.destination_id = c2::ComponentId::effector_asset;
     EXPECT_EQ(pointer.handle(command, 13).acknowledgement.error_code, c2::dummy_error::invalid_state);
@@ -106,10 +106,13 @@ TEST(DummyObservationAssetTest, AcceptsValidLimitsThatDoNotContainHomeAngle){
  EXPECT_NO_THROW(c2::DummyObservationAsset(
      pose(c2::ComponentId::observation_asset),{10,20,5,15}));
 }
-TEST(DummyEffectorAssetTest, PointsArmsStartsAndStopsAtDuration){
+TEST(DummyEffectorAssetTest, TrackedTargetArmsStartsAndStopsAtDuration){
  c2::DummyEffectorAsset asset(pose(c2::ComponentId::effector_asset));
- c2::EffectorTurretCommand point{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,1,10),1,7,20,5,100};
+ c2::EffectorTurretCommand point{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,1,10),1,20,5,100};
  EXPECT_EQ(asset.handle(point,11).acknowledgement.result,c2::CommandResult::completed);EXPECT_TRUE(asset.status(12).aligned);
+ c2::TargetTrackUpdate track{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,2,12),7,c2::CoordinateFrame::project_frame,100,0,0,0,0,0,true,12,10000,1,1,1};
+ ASSERT_TRUE(asset.handle(track,12)); (void)asset.control_step(12);
+
  c2::AttackCommand arm{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,2,12),2,7,c2::AttackAction::arm,0,100};
  EXPECT_EQ(asset.handle(arm,13).acknowledgement.result,c2::CommandResult::completed);EXPECT_TRUE(asset.status(14).attack_armed);
  auto start=arm;start.command_id=3;start.action=c2::AttackAction::start;start.duration_ms=2; EXPECT_EQ(asset.handle(start,15).acknowledgement.result,c2::CommandResult::completed);EXPECT_TRUE(asset.status(2014).attack_active);EXPECT_FALSE(asset.status(2015).attack_active);
@@ -123,7 +126,7 @@ TEST(DummyEffectorAssetTest, RejectsWrongTargetAndHonorsEmergencyStopAndDuplicat
 }
 TEST(DummyEffectorAssetTest, RejectsPointingOutsideLocalLimits){
  c2::DummyEffectorAsset asset(pose(c2::ComponentId::effector_asset),{-45,45,-10,20});
- c2::EffectorTurretCommand point{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,1,10),1,7,46,0,100};
+ c2::EffectorTurretCommand point{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,1,10),1,46,0,100};
  auto result=asset.handle(point,11);EXPECT_EQ(result.acknowledgement.result,c2::CommandResult::rejected);EXPECT_EQ(result.acknowledgement.error_code,c2::dummy_error::out_of_range);ASSERT_TRUE(result.error_report);EXPECT_TRUE(c2::validate(*result.error_report).valid());
 }
 TEST(DummyAssetsTest, BoundsResultCacheWithoutReplayingEvictedCommands){
@@ -145,7 +148,7 @@ TEST(DummyAssetsTest, PreservesIdentityAndRejectsOtherAssetOrSessionCommands){
  for(const auto& value:{effector.asset_pose(10).header,effector.status(11).header,effector.heartbeat(12,1).header}){EXPECT_EQ(value.asset_id,201U);EXPECT_EQ(value.session_id,9U);}
  c2::ObservationTurretCommand scan{{c2::protocol_version,1,20,c2::ComponentId::command_and_control,c2::ComponentId::observation_asset,999,7},1,c2::ObservationTurretCommandType::scan,10,0,100};
  EXPECT_EQ(observation.handle(scan,21).acknowledgement.result,c2::CommandResult::rejected);
- c2::EffectorTurretCommand point{{c2::protocol_version,1,20,c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,201,999},1,1,10,0,100};
+ c2::EffectorTurretCommand point{{c2::protocol_version,1,20,c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,201,999},1,10,0,100};
  EXPECT_EQ(effector.handle(point,21).acknowledgement.result,c2::CommandResult::rejected);
  c2::Heartbeat wrong{{c2::protocol_version,1,20,c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,201,8},c2::AssetOperatingState::operating,1,20};
  EXPECT_FALSE(effector.observe_control_heartbeat(wrong,21));
@@ -159,8 +162,10 @@ TEST(DummyAssetsTest, StopsActiveWorkWhenControlHeartbeatTimesOut){
  ASSERT_TRUE(effector.observe_control_heartbeat(effector_heartbeat,100));
  c2::ObservationTurretCommand scan{header(c2::ComponentId::command_and_control,c2::ComponentId::observation_asset,2,10),1,c2::ObservationTurretCommandType::scan,10,5,1000};
  ASSERT_EQ(observation.handle(scan,110).acknowledgement.result,c2::CommandResult::completed);
- c2::EffectorTurretCommand point{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,2,10),1,7,20,5,1000};
+ c2::EffectorTurretCommand point{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,2,10),1,20,5,1000};
  ASSERT_EQ(effector.handle(point,110).acknowledgement.result,c2::CommandResult::completed);
+ c2::TargetTrackUpdate track{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,3,110),7,c2::CoordinateFrame::project_frame,100,0,0,0,0,0,true,110,10000,1,1,1};
+ ASSERT_TRUE(effector.handle(track,110)); (void)effector.control_step(110);
  c2::AttackCommand arm{header(c2::ComponentId::command_and_control,c2::ComponentId::effector_asset,3,10),2,7,c2::AttackAction::arm,0,1000};
  ASSERT_EQ(effector.handle(arm,111).acknowledgement.result,c2::CommandResult::completed);
  auto start=arm;start.command_id=3;start.action=c2::AttackAction::start;start.duration_ms=100;

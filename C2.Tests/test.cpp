@@ -37,7 +37,6 @@ c2::TargetCoordinate valid_target() {
 c2::EffectorTurretCommand valid_command() {
     return {header(c2::ComponentId::command_and_control, c2::ComponentId::effector_asset),
             10,
-            42,
             30.0F,
             5.0F,
             1'000'001};
@@ -232,14 +231,13 @@ TEST(EffectorTurretCommandContractTest, AcceptsFiniteCommandWithFutureExpiry) {
     EXPECT_TRUE(c2::validate(valid_command()).valid());
 }
 
-TEST(EffectorTurretCommandContractTest, RejectsMissingCommandOrTargetIdentity) {
+TEST(EffectorTurretCommandContractTest, RejectsMissingCommandIdentity) {
     auto command = valid_command();
     command.command_id = 0;
     EXPECT_TRUE(has_error(c2::validate(command), "command_id must be non-zero"));
 
     command = valid_command();
-    command.target_id = 0;
-    EXPECT_TRUE(has_error(c2::validate(command), "target_id must be non-zero"));
+    EXPECT_TRUE(c2::validate(command).valid());
 }
 
 TEST(EffectorTurretCommandContractTest, RejectsNonFinitePanOrTilt) {

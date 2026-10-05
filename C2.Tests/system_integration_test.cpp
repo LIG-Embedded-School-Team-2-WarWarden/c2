@@ -75,13 +75,11 @@ TEST(SystemIntegrationTest, RunsObservationToPointingAndAttackFlow) {
     const auto point = server->point_effector(7, 120);
     ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(point));
     EXPECT_TRUE(effector.status(121).aligned);
+    // Absolute-angle movement does not designate a target for output.
     const auto arm = server->attack(c2::AttackAction::arm, 7, 0, 130);
-    ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(arm));
-    EXPECT_TRUE(effector.status(131).attack_armed);
-    const auto start = server->attack(c2::AttackAction::start, 7, 100, 140);
-    ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(start));
-    EXPECT_TRUE(effector.status(141).attack_active);
-    EXPECT_FALSE(effector.status(100'140).attack_active);
+    EXPECT_TRUE(std::holds_alternative<c2::DispatchError>(arm));
+    EXPECT_FALSE(effector.status(131).attack_armed);
+
 }
 
 TEST(SystemIntegrationTest, RegistersAssetThroughUdpUsingActualSourceEndpoint) {

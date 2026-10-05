@@ -11,20 +11,12 @@ namespace {
 c2::EffectorStatus status(
     const c2::EffectorState state = c2::EffectorState::ready,
     const bool aligned = true, const bool armed = false,
-    const std::uint64_t timestamp = 100, const std::uint32_t sequence = 1) {
+    const std::uint64_t timestamp = 100, const std::uint32_t sequence = 1,
+    const std::uint64_t track_id = 7) {
     return {{c2::protocol_version, sequence, timestamp,
              c2::ComponentId::effector_asset,
              c2::ComponentId::command_and_control},
-            state, 0, 0, 0, 0, aligned, armed, false, 0, timestamp};
-}
-
-c2::EffectorTurretCommand pointing(
-    const std::uint32_t target_id, const std::uint64_t timestamp = 100,
-    const std::uint32_t sequence = 1) {
-    return {{c2::protocol_version, sequence, timestamp,
-             c2::ComponentId::command_and_control,
-             c2::ComponentId::effector_asset},
-            sequence, target_id, 0, 0, timestamp + 100};
+            state, 0, 0, 0, 0, aligned, armed, false, 0, timestamp, track_id};
 }
 
 c2::AttackCommandService service(
@@ -32,23 +24,19 @@ c2::AttackCommandService service(
     return c2::AttackCommandService({500, first_id, first_sequence});
 }
 
-TEST(AttackCommandServiceTest, ArmRequiresReadyAlignedStatusAndMatchingPointingTarget) {
+TEST(AttackCommandServiceTest, ArmRequiresReadyAlignedStatusAndMatchingTrackedTarget) {
     auto commands = service();
     EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(c2::AttackAction::arm, 7, 0, 100)),
               c2::AttackCommandError::status_unavailable);
-    ASSERT_EQ(commands.update_status(status()), c2::AttackStatusUpdateResult::stored);
-    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(c2::AttackAction::arm, 7, 0, 100)),
-              c2::AttackCommandError::target_unavailable);
-    ASSERT_TRUE(commands.record_pointing_command(pointing(8)));
-    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(c2::AttackAction::arm, 7, 0, 100)),
-              c2::AttackCommandError::target_mismatch);
-
-    ASSERT_TRUE(commands.record_pointing_command(pointing(7, 101, 2)));
+    ASSERT_EQ(commands.update_status(status(c2::EffectorState::ready, true, false, 98, 1, 0)), c2::AttackStatusUpdateResult::stored);
+    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(c2::AttackAction::arm, 7, 0, 100)), c2::AttackCommandError::target_unavailable);
+    ASSERT_EQ(commands.update_status(status(c2::EffectorState::ready, true, false, 99, 2, 8)), c2::AttackStatusUpdateResult::stored);
+    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(c2::AttackAction::arm, 7, 0, 100)), c2::AttackCommandError::target_mismatch);
+    ASSERT_EQ(commands.update_status(status(c2::EffectorState::ready, true, false, 100, 3, 7)), c2::AttackStatusUpdateResult::stored);
     const auto result = commands.create(c2::AttackAction::arm, 7, 0, 100);
     ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(result));
     const auto& command = std::get<c2::AttackCommand>(result);
     EXPECT_EQ(command.command_id, 10U);
-    EXPECT_EQ(command.target_id, 7U);
     EXPECT_EQ(command.action, c2::AttackAction::arm);
     EXPECT_EQ(command.duration_ms, 0U);
     EXPECT_EQ(command.valid_until_us, 600U);
@@ -56,7 +44,6 @@ TEST(AttackCommandServiceTest, ArmRequiresReadyAlignedStatusAndMatchingPointingT
 
 TEST(AttackCommandServiceTest, ArmRejectsUnsafeEffectorStateAndAlignment) {
     auto commands = service();
-    ASSERT_TRUE(commands.record_pointing_command(pointing(7)));
     ASSERT_EQ(commands.update_status(status(c2::EffectorState::standby, true)),
               c2::AttackStatusUpdateResult::stored);
     EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(c2::AttackAction::arm, 7, 0, 100)),
@@ -69,7 +56,6 @@ TEST(AttackCommandServiceTest, ArmRejectsUnsafeEffectorStateAndAlignment) {
 
 TEST(AttackCommandServiceTest, StartRequiresArmedReadyAlignedAndDuration) {
     auto commands = service();
-    ASSERT_TRUE(commands.record_pointing_command(pointing(7)));
     ASSERT_EQ(commands.update_status(status()), c2::AttackStatusUpdateResult::stored);
     EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(c2::AttackAction::start, 7, 1000, 100)),
               c2::AttackCommandError::not_armed);
@@ -106,25 +92,10 @@ TEST(AttackCommandServiceTest, StatusUpdatesRejectInvalidDuplicateAndOutOfOrderD
               c2::AttackStatusUpdateResult::out_of_order);
 }
 
-TEST(AttackCommandServiceTest, PointingTargetRejectsInvalidAndReplayedCommands) {
+TEST(AttackCommandServiceTest, ArmRejectsStaleTrackedStatus) {
     auto commands = service();
-    auto invalid = pointing(7);
-    invalid.target_id = 0;
-    EXPECT_FALSE(commands.record_pointing_command(invalid));
-    EXPECT_TRUE(commands.record_pointing_command(pointing(7, 100, 1)));
-    EXPECT_FALSE(commands.record_pointing_command(pointing(8, 100, 2)));
-    EXPECT_FALSE(commands.record_pointing_command(pointing(8, 99, 3)));
-    EXPECT_TRUE(commands.record_pointing_command(pointing(8, 101, 4)));
-}
-
-TEST(AttackCommandServiceTest, ArmRejectsExpiredPointingCommand) {
-    auto commands = service();
-    ASSERT_EQ(commands.update_status(status(c2::EffectorState::ready, true, false, 201, 2)),
-              c2::AttackStatusUpdateResult::stored);
-    ASSERT_TRUE(commands.record_pointing_command(pointing(7, 100, 1)));
-    EXPECT_EQ(std::get<c2::AttackCommandError>(
-                  commands.create(c2::AttackAction::arm, 7, 0, 201)),
-              c2::AttackCommandError::target_unavailable);
+    ASSERT_EQ(commands.update_status(status()), c2::AttackStatusUpdateResult::stored);
+    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(c2::AttackAction::arm, 7, 0, 600)), c2::AttackCommandError::target_unavailable);
 }
 
 TEST(AttackCommandServiceTest, InvalidRequestsDoNotConsumeIdentifiersAndWrapSkipsZero) {
@@ -154,18 +125,17 @@ TEST(AttackCommandServiceTest, RejectsDeadlineOverflowAndInvalidConfiguration) {
 }
 }  // namespace
 
-TEST(AttackCommandServiceTest, ExplicitContextIsIsolatedFromLegacyStatusAndPointing) {
+TEST(AttackCommandServiceTest, ExplicitContextIsIsolatedFromLegacyStatus) {
     auto commands = service();
     ASSERT_EQ(commands.update_status(status(c2::EffectorState::fault)),
               c2::AttackStatusUpdateResult::stored);
-    ASSERT_TRUE(commands.record_pointing_command(pointing(99)));
     const c2::AttackCommandContext context{status(c2::EffectorState::ready, true, true), true, 42};
     const auto result = commands.create(c2::AttackAction::start, 42, 100, 300, context);
     ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(result));
     EXPECT_EQ(std::get<c2::AttackCommand>(result).target_id, 42);
     EXPECT_EQ(std::get<c2::AttackCommand>(result).valid_until_us, 800);
     EXPECT_EQ(std::get<c2::AttackCommandError>(
-        commands.create(c2::AttackAction::arm, 99, 0, 150)),
+        commands.create(c2::AttackAction::arm, 7, 0, 150)),
         c2::AttackCommandError::invalid_state);
 }
 

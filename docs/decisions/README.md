@@ -8,6 +8,7 @@ ADR과 같은 번호가 존재하므로 인용할 때 출처를 포함한다.
 - `C2-ADR-009`: [Runtime 책임 분리](ADR-009-runtime-command-responsibilities.md)
 - `C2-ADR-010`: [bounded ingress와 운영 지표](ADR-010-bounded-ingress-and-operability.md)
 - `C2-ADR-011`: [부분 실패·수명주기·운영 기록](ADR-011-command-partial-failure-and-events.md)
+- `C2-ADR-012`: [수동 지향의 표적 ID 제거](ADR-012-manual-pointing-without-target.md)
 
 이 표시는 인용 별칭이다. 기존 파일명·문서 ID·승인 상태를 변경하지 않는다.
 후속 ADR-011에서 운영 JSONL 로그가 구현되었으므로 ADR-010의 로그 후속 과제는

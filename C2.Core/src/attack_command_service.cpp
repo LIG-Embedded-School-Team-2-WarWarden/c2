@@ -39,24 +39,15 @@ AttackStatusUpdateResult AttackCommandService::update_status(
     return AttackStatusUpdateResult::stored;
 }
 
-bool AttackCommandService::record_pointing_command(
-    const EffectorTurretCommand& command) {
-    if (!validate(command).valid()) return false;
-    std::lock_guard lock(mutex_);
-    if (pointing_command_ &&
-        command.header.timestamp_us <= pointing_command_->header.timestamp_us)
-        return false;
-    pointing_command_ = command;
-    return true;
-}
-
 AttackCommandResult AttackCommandService::create(
     const AttackAction action, std::uint64_t target_id,
     std::uint32_t duration_ms, const std::uint64_t now_us) {
     std::lock_guard lock(mutex_);
     return create_locked(action, target_id, duration_ms, now_us,
-        {status_, pointing_command_ && now_us <= pointing_command_->valid_until_us,
-         pointing_command_ ? pointing_command_->target_id : 0});
+        {status_, status_ && status_->tracking_track_id != 0 &&
+             now_us >= status_->timestamp_us &&
+             now_us - status_->timestamp_us < config_.command_validity_us,
+         status_ ? status_->tracking_track_id : 0});
 }
 
 AttackCommandResult AttackCommandService::create(

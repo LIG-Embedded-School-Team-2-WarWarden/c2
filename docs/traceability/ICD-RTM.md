@@ -82,6 +82,12 @@ C2-IMPL-012는 공통 런타임 설정, C2-IMPL-013은 시험 대역이며 이�
 
 ## 운영 기록과 시험 기준선
 
+- 2026-10-06 수동 지향 변경: `EffectorTurretCommand.target_id` 제거, field 3 reserved.
+  수동 이동은 기존 출력·추적을 해제하며 출력 대상 지정 근거가 아니다.
+  계약은 `docs/icd/manual-pointing-command.md`, 결정은 C2-ADR-012를 따른다.
+  변경 후 서버 213 + 공용 31 = 244 시험, 실제 UDP smoke와 burst/faults probe 통과.
+  아래 commit·CI 숫자는 변경 전 병합 기준선의 기록이다.
+
 - C2 기준 commit: `9af1529a2cfa19ef11b13bcd096dfb3af4ad797f`
 - 공용 프로토콜 gitlink: `711d071df742e251dd4d9304fb2c0baf1c65379c`
 - 서버 213 + 공용 프로토콜 30 = 243 자동 시험 통과. 공용으로 이동한 시험을 서버 수에 중복 집계하지 않는다.

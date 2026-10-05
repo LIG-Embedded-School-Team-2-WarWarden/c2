@@ -76,7 +76,7 @@ EffectorCommandResult EffectorCommandService::create_for_target(
     EffectorTurretCommand command{
         {protocol_version, 1, now_us, ComponentId::command_and_control,
          ComponentId::effector_asset},
-        1, target_id, solution.pan_deg, solution.tilt_deg,
+        1, solution.pan_deg, solution.tilt_deg,
         now_us + config_.command_validity_us};
     if (!validate(command).valid())
         throw std::logic_error("generated effector command is invalid");
