@@ -153,3 +153,37 @@ TEST(AttackCommandServiceTest, RejectsDeadlineOverflowAndInvalidConfiguration) {
     EXPECT_THROW((void)c2::AttackCommandService({1, 1, 0}), std::invalid_argument);
 }
 }  // namespace
+
+TEST(AttackCommandServiceTest, ExplicitContextIsIsolatedFromLegacyStatusAndPointing) {
+    auto commands = service();
+    ASSERT_EQ(commands.update_status(status(c2::EffectorState::fault)),
+              c2::AttackStatusUpdateResult::stored);
+    ASSERT_TRUE(commands.record_pointing_command(pointing(99)));
+    const c2::AttackCommandContext context{status(c2::EffectorState::ready, true, true), true, 42};
+    const auto result = commands.create(c2::AttackAction::start, 42, 100, 300, context);
+    ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(result));
+    EXPECT_EQ(std::get<c2::AttackCommand>(result).target_id, 42);
+    EXPECT_EQ(std::get<c2::AttackCommand>(result).valid_until_us, 800);
+    EXPECT_EQ(std::get<c2::AttackCommandError>(
+        commands.create(c2::AttackAction::arm, 99, 0, 150)),
+        c2::AttackCommandError::invalid_state);
+}
+
+TEST(AttackCommandServiceTest, ExplicitContextEnforcesAttackSafetyPreconditions) {
+    auto commands = service();
+    c2::AttackCommandContext context{status(), true, 42};
+    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(
+        c2::AttackAction::start, 42, 100, 150, context)), c2::AttackCommandError::not_armed);
+    context.status = status(c2::EffectorState::ready, false, true);
+    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(
+        c2::AttackAction::start, 42, 100, 150, context)), c2::AttackCommandError::not_aligned);
+    context.status = status(c2::EffectorState::ready, true, true);
+    context.target_available = false;
+    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(
+        c2::AttackAction::start, 42, 100, 150, context)), c2::AttackCommandError::target_unavailable);
+    context.target_available = true;
+    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(
+        c2::AttackAction::start, 43, 100, 150, context)), c2::AttackCommandError::target_mismatch);
+    EXPECT_EQ(std::get<c2::AttackCommandError>(commands.create(
+        c2::AttackAction::start, 42, 0, 150, context)), c2::AttackCommandError::invalid_duration);
+}

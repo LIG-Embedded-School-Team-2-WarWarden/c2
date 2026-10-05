@@ -1,6 +1,7 @@
 #pragma once
 
 #include "c2/server_runtime.hpp"
+#include "c2/datagram_processor.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +20,8 @@ struct ServerOptions {
     std::uint16_t effector_command_port{6001};
     std::uint16_t effector_status_port{6002};
     std::uint16_t asset_port{5000};
+    DatagramProcessorConfig ingress;
+    EventLogConfig event_log{"logs/c2-events.jsonl"};
     std::uint64_t target_validity_ms{2'000};
     std::size_t maximum_targets{256};
     std::size_t maximum_tracks_per_observer{64};

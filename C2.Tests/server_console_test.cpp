@@ -35,6 +35,7 @@ TEST(ServerConsoleTest, ParsesAssetTrackAndStatusQueries) {
     EXPECT_EQ(parsed("errors").kind, c2::ConsoleCommandKind::errors);
     EXPECT_EQ(parsed("outcomes").kind, c2::ConsoleCommandKind::outcomes);
     EXPECT_EQ(parsed("events").kind, c2::ConsoleCommandKind::events);
+    EXPECT_EQ(parsed("pending").kind, c2::ConsoleCommandKind::pending);
     EXPECT_EQ(parsed("quit").kind, c2::ConsoleCommandKind::quit);
 }
 
@@ -94,3 +95,11 @@ TEST(ServerConsoleTest, RejectsMissingExtraMalformedAndZeroArguments) {
     }
 }
 }  // namespace
+
+TEST(ServerConsoleTest, ParsesMetricsAndRejectsArguments) {
+    const auto result = c2::parse_console_command("metrics");
+    ASSERT_TRUE(std::holds_alternative<c2::ConsoleCommand>(result));
+    EXPECT_EQ(std::get<c2::ConsoleCommand>(result).kind, c2::ConsoleCommandKind::metrics);
+    EXPECT_TRUE(std::holds_alternative<c2::ConsoleParseError>(
+        c2::parse_console_command("metrics extra")));
+}

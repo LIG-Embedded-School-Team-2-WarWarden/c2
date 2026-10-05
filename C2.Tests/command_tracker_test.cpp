@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <latch>
+#include <memory>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -119,6 +121,53 @@ TEST(CommandTrackerTest, StopsRetryingAfterProgressAndExpiresCompletionAndComman
     EXPECT_TRUE(expired.transmissions.empty());
 }
 
+TEST(CommandTrackerTest, CompletesMotionAfterDeliveryValidityExpires) {
+    c2::CommandTracker tracker({10, 50, 3, 8, 4, 16});
+    ASSERT_EQ(tracker.track(command(1, 10, 1, 120)), c2::CommandTrackResult::tracked);
+    ASSERT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::accepted), 110),
+              c2::AckUpdateResult::progress);
+    const auto after_validity = tracker.poll(120);
+    EXPECT_TRUE(after_validity.finalized.empty());
+    EXPECT_TRUE(after_validity.transmissions.empty());
+    EXPECT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::completed), 150),
+              c2::AckUpdateResult::terminal);
+    ASSERT_EQ(tracker.outcomes().size(), 1U);
+    EXPECT_EQ(tracker.outcomes().front().state, c2::CommandTerminalState::completed);
+}
+
+TEST(CommandTrackerTest, RepeatedProgressDoesNotExtendCompletionDeadline) {
+    c2::CommandTracker tracker({10, 50, 3, 8, 4, 16});
+    ASSERT_EQ(tracker.track(command(1, 10, 1, 120)), c2::CommandTrackResult::tracked);
+    ASSERT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::received), 110),
+              c2::AckUpdateResult::progress);
+    ASSERT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::in_progress), 150),
+              c2::AckUpdateResult::progress);
+    EXPECT_TRUE(tracker.poll(159).finalized.empty());
+    const auto timeout = tracker.poll(160);
+    ASSERT_EQ(timeout.finalized.size(), 1U);
+    EXPECT_EQ(timeout.finalized.front().state, c2::CommandTerminalState::completion_timeout);
+}
+
+TEST(CommandTrackerTest, RejectsLateProgressWithoutPollingFirst) {
+    c2::CommandTracker tracker({10, 50, 3, 8, 4, 16});
+    ASSERT_EQ(tracker.track(command(1, 10, 1, 120)), c2::CommandTrackResult::tracked);
+    EXPECT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::accepted), 120),
+              c2::AckUpdateResult::not_found);
+    ASSERT_EQ(tracker.outcomes().size(), 1U);
+    EXPECT_EQ(tracker.outcomes().front().state, c2::CommandTerminalState::expired);
+}
+
+TEST(CommandTrackerTest, RejectsCompletionAtDeadlineWithoutPollingFirst) {
+    c2::CommandTracker tracker({10, 50, 3, 8, 4, 16});
+    ASSERT_EQ(tracker.track(command(1, 10, 1, 120)), c2::CommandTrackResult::tracked);
+    ASSERT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::accepted), 110),
+              c2::AckUpdateResult::progress);
+    EXPECT_EQ(tracker.observe(ack(1, 10, 1, c2::CommandResult::completed), 160),
+              c2::AckUpdateResult::not_found);
+    ASSERT_EQ(tracker.outcomes().size(), 1U);
+    EXPECT_EQ(tracker.outcomes().front().state, c2::CommandTerminalState::completion_timeout);
+}
+
 TEST(CommandTrackerTest, EnforcesTotalPerAssetAndHistoryCapacity) {
     c2::CommandTracker tracker({10, 50, 2, 3, 2, 2});
     EXPECT_EQ(tracker.track(command(1, 10, 1)), c2::CommandTrackResult::tracked);
@@ -172,4 +221,27 @@ TEST(CommandTrackerTest, SerializesTerminalAckAndRetryExhaustionRace) {
     EXPECT_TRUE(outcomes.front().state == c2::CommandTerminalState::completed ||
                 outcomes.front().state ==
                     c2::CommandTerminalState::delivery_exhausted);
+}
+
+TEST(CommandTrackerFailureTest, CanCancelOnlyBeforeSendAndObservabilityRunsOutsideLock) {
+    std::unique_ptr<c2::CommandTracker> tracker;
+    std::size_t logged{};
+    tracker = std::make_unique<c2::CommandTracker>(c2::CommandTrackerConfig{}, [&](const auto&) {
+        ++logged; (void)tracker->pending_count();
+    });
+    ASSERT_EQ(tracker->track(command(1, 7, 1)), c2::CommandTrackResult::tracked);
+    EXPECT_TRUE(tracker->cancel_before_send({1, 7, 1}, 101));
+    EXPECT_EQ(tracker->outcomes().back().state, c2::CommandTerminalState::cancelled_before_send);
+    ASSERT_EQ(tracker->track(command(1, 7, 2)), c2::CommandTrackResult::tracked);
+    tracker->record_send({1, 7, 2}, false, 102);
+    EXPECT_FALSE(tracker->cancel_before_send({1, 7, 2}, 103));
+    EXPECT_EQ(tracker->pending({1, 7, 2})->delivery, c2::CommandDeliveryState::uncertain);
+    EXPECT_GE(logged, 4);
+}
+
+TEST(CommandTrackerFailureTest, ThrowingEventSinkCannotBreakStateTransitions) {
+    c2::CommandTracker tracker({}, [](const auto&) { throw std::runtime_error("logger failed"); });
+    ASSERT_EQ(tracker.track(command(1, 7, 1)), c2::CommandTrackResult::tracked);
+    EXPECT_EQ(tracker.observe(ack(1, 7, 1, c2::CommandResult::completed), 110), c2::AckUpdateResult::terminal);
+    EXPECT_EQ(tracker.pending_count(), 0);
 }

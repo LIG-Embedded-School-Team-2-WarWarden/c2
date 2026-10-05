@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "captured_at_utc": "2026-10-02T12:33:16.1358844Z",
+  "git_commit": "5e4a05cfd93d633b31b244f1ae887bdc4fab72ec",
+  "working_tree_dirty": false,
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+    "logical_processors": 8,
+    "configuration": "Release"
+  },
+  "scope": "In-process encode + authenticated Runtime ingest; excludes UDP, queue wait, physical assets and output control.",
+  "runs": [
+    {
+      "schema_version": 1,
+      "workload": "encode_authenticated_target_ingest",
+      "samples": 50000,
+      "warmup": 2000,
+      "observers": 16,
+      "active_tracks": 512,
+      "rejected": 0,
+      "wire_bytes": 2835619,
+      "elapsed_seconds": 0.276984,
+      "messages_per_second": 180516,
+      "p50_us": 5.2,
+      "p95_us": 6.3,
+      "p99_us": 7.4,
+      "max_us": 107.8
+    },
+    {
+      "schema_version": 1,
+      "workload": "encode_authenticated_target_ingest",
+      "samples": 50000,
+      "warmup": 2000,
+      "observers": 16,
+      "active_tracks": 512,
+      "rejected": 0,
+      "wire_bytes": 2835619,
+      "elapsed_seconds": 0.297972,
+      "messages_per_second": 167801,
+      "p50_us": 5.5,
+      "p95_us": 7.2,
+      "p99_us": 8,
+      "max_us": 137.8
+    },
+    {
+      "schema_version": 1,
+      "workload": "encode_authenticated_target_ingest",
+      "samples": 50000,
+      "warmup": 2000,
+      "observers": 16,
+      "active_tracks": 512,
+      "rejected": 0,
+      "wire_bytes": 2835619,
+      "elapsed_seconds": 0.284835,
+      "messages_per_second": 175540,
+      "p50_us": 5.5,
+      "p95_us": 6.3,
+      "p99_us": 7.5,
+      "max_us": 68
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$BinDir
 )
@@ -229,6 +229,7 @@ try {
     $processes = @($server) + $assets
 
     Wait-OutputPattern $server 'assets=5 tracks=2' 10000 'status'
+    Wait-OutputPattern $server 'metrics rx_datagrams=[1-9][0-9]* .*queue_processed=[1-9][0-9]*' 10000 'metrics'
     $server.StandardInput.WriteLine('targets')
     Wait-OutputPattern $server 'observer=102 detection=1 xyz=\(2,3,4\)' 10000 'targets'
     $sent = 0

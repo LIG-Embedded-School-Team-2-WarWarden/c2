@@ -27,6 +27,8 @@ enum class ConsoleCommandKind {
     events,
     quit,
     development_pose,
+    metrics,
+    pending,
 };
 
 struct ConsoleCommand {

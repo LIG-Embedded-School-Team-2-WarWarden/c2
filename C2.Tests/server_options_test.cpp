@@ -5,6 +5,23 @@
 #include <string_view>
 #include <vector>
 
+TEST(ServerOptionsTest, ConfiguresBoundedEventLogAndCanDisableIt) {
+    const std::vector<std::string_view> args{"--event-log", "audit.jsonl",
+        "--event-log-max-bytes", "2048", "--event-log-retained-files", "2"};
+    const auto options = c2::parse_server_options(args);
+    EXPECT_EQ(options.event_log.path, "audit.jsonl");
+    EXPECT_EQ(options.event_log.maximum_file_bytes, 2048);
+    EXPECT_EQ(options.event_log.retained_files, 2);
+    const std::vector<std::string_view> disabled{"--event-log", "off"};
+    EXPECT_TRUE(c2::parse_server_options(disabled).event_log.path.empty());
+    for (const auto value : {"0", "1023"}) {
+        const std::vector<std::string_view> invalid{"--event-log-max-bytes", value};
+        EXPECT_THROW((void)c2::parse_server_options(invalid), std::invalid_argument);
+    }
+    const std::vector<std::string_view> invalid{"--event-log-retained-files", "101"};
+    EXPECT_THROW((void)c2::parse_server_options(invalid), std::invalid_argument);
+}
+
 TEST(ServerOptionsTest, ParsesAndPropagatesDynamicRuntimeLimits) {
     const std::vector<std::string_view> arguments{
         "--asset-port", "5500",
@@ -91,5 +108,17 @@ TEST(ServerOptionsTest, RejectsUnknownMissingZeroOverflowAndContradictoryValues)
              {"--max-pending-commands", "10", "--max-pending-per-asset", "11"}}) {
         EXPECT_THROW((void)c2::parse_server_options(arguments),
                      std::invalid_argument);
+    }
+}
+
+TEST(ServerOptionsTest, ConfiguresBoundedIngressAndRejectsZeroLimits) {
+    const std::vector<std::string_view> arguments{
+        "--ingress-queue-capacity", "32", "--ingress-queue-bytes", "65536"};
+    const auto options = c2::parse_server_options(arguments);
+    EXPECT_EQ(options.ingress.maximum_queued_datagrams, 32);
+    EXPECT_EQ(options.ingress.maximum_queued_bytes, 65536);
+    for (const auto name : {"--ingress-queue-capacity", "--ingress-queue-bytes"}) {
+        const std::vector<std::string_view> invalid{name, "0"};
+        EXPECT_THROW((void)c2::parse_server_options(invalid), std::invalid_argument);
     }
 }

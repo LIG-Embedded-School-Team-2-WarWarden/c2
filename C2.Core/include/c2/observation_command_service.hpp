@@ -1,6 +1,7 @@
 #pragma once
 
 #include "c2/protocol.hpp"
+#include "c2/command_identity.hpp"
 #include "c2/protocol_validation.hpp"
 
 #include <cstdint>
@@ -23,11 +24,11 @@ public:
         float target_pan_deg,
         float target_tilt_deg,
         std::uint64_t now_us);
+    void assign_identity(DevelopmentPoseCommand& command) { identity_.assign(command); }
 
 private:
     ObservationCommandConfig config_;
     std::mutex mutex_;
-    std::uint32_t next_command_id_;
-    std::uint32_t next_sequence_;
+    CommandIdentity identity_;
 };
 }  // namespace c2
