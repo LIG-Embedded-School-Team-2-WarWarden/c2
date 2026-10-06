@@ -201,7 +201,6 @@ EffectorDispatchResult ServerRuntime::point_effector(
                                     command.valid_until_us}) !=
             CommandTrackResult::tracked)
             return DispatchError::command_rejected;
-        routed_points_.record(command);
         if (!send_tracked(encoded, asset->command_endpoint,
                           {asset->asset_id, asset->session_id, command.command_id}, now_us))
             return DispatchError::delivery_uncertain;
@@ -214,8 +213,6 @@ EffectorDispatchResult ServerRuntime::point_effector(
         return DispatchError::command_rejected;
     auto command = std::get<EffectorTurretCommand>(result);
     effector_identity_.assign(command);
-    if (!attack_commands_.record_pointing_command(command))
-        return DispatchError::command_rejected;
     if (!dispatch_tracked(command, config_.effector_endpoint,
                           ComponentId::effector_asset, now_us))
         return DispatchError::delivery_uncertain;
@@ -243,8 +240,7 @@ AttackDispatchResult ServerRuntime::attack(
         if (!asset->effector_status || !asset->status_current ||
             asset->effector_status->error_code != 0)
             return DispatchError::command_rejected;
-        if (asset->effector_status->tracking_track_id != target_id &&
-            !routed_points_.matches(target_id, asset->asset_id, asset->session_id, now_us))
+        if (asset->effector_status->tracking_track_id != target_id)
             return DispatchError::command_rejected;
         const auto result = attack_commands_.create(
             action, target_id, duration_ms, now_us,
@@ -359,7 +355,6 @@ AssignmentResult ServerRuntime::unassign(const std::uint64_t track_id) {
     std::lock_guard lifecycle_lock(asset_lifecycle_mutex_);
     const auto result = assignments_.unassign(track_id);
     if (result == AssignmentResult::completed) {
-        routed_points_.erase(track_id);
     }
     emit_event(config_.event_sink, {"unassignment_decision", 0, 0, 0, 0,
         "track=" + std::to_string(track_id) + " result=" + std::to_string(static_cast<int>(result))});

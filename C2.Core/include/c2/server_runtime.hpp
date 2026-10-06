@@ -3,7 +3,6 @@
 #include "c2/asset_registry.hpp"
 #include "c2/runtime_types.hpp"
 #include "c2/command_identity.hpp"
-#include "c2/routed_point_store.hpp"
 #include "c2/inbound_rejection_log.hpp"
 #include "c2/track_update_publisher.hpp"
 #include "c2/inbound_message_router.hpp"
@@ -140,7 +139,6 @@ private:
     EffectorCommandService effector_commands_;
     AttackCommandService attack_commands_;
     CommandIdentity effector_identity_;
-    RoutedPointStore routed_points_;
     TrackUpdatePublisher track_updates_;
     HeartbeatPublisher heartbeats_;
     AssignmentCoordinator assignment_coordinator_;

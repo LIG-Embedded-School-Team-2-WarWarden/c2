@@ -76,7 +76,6 @@ TEST(EffectorCommandServiceTest, CreatesPointingCommandFromProjectTargetAndEffec
     EXPECT_EQ(command.header.source_id, c2::ComponentId::command_and_control);
     EXPECT_EQ(command.header.destination_id, c2::ComponentId::effector_asset);
     EXPECT_EQ(command.command_id, 10U);
-    EXPECT_EQ(command.target_id, 7U);
     EXPECT_NEAR(command.target_pan_deg, -90.0F, 0.001F);
     EXPECT_NEAR(command.target_tilt_deg, 45.0F, 0.001F);
     EXPECT_EQ(command.valid_until_us, 700U);
@@ -188,7 +187,6 @@ TEST(EffectorCommandContextTest, UsesExplicitPoseLimitsAnd64BitTrackWithoutLegac
         effector_pose(), {-180, 180, -90, 90}, 200);
     ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(result));
     const auto command = std::get<c2::EffectorTurretCommand>(result);
-    EXPECT_EQ(command.target_id, track_id);
     EXPECT_NEAR(command.target_pan_deg, 90, 0.001);
     EXPECT_EQ(std::get<c2::EffectorCommandError>(commands.create_for_target(
         track_id, target(7, 0, 10, 0), effector_pose(), {-10, 10, -10, 10}, 200)),

@@ -190,7 +190,7 @@ TEST(ServerRuntimeTest, UsesOneIdentitySequenceForAllEffectorCommands) {
     ASSERT_EQ(server.ingest(bytes(status), 103), c2::InboundResult::accepted);
 
     const auto point = server.point_effector(7, 104);
-    const auto arm = server.attack(c2::AttackAction::arm, 7, 0, 105);
+    const auto arm = server.attack(c2::AttackAction::stop, 0, 0, 105);
     ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(point));
     ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(arm));
     const auto& point_command = std::get<c2::EffectorTurretCommand>(point);
@@ -653,7 +653,6 @@ TEST(ServerRuntimeAssignmentTest, AssignsNearestEffectorAndReassignsAfterHeartbe
         std::get<c2::Envelope>(decoded).payload);
     EXPECT_EQ(point_command.header.asset_id, 201U);
     EXPECT_EQ(point_command.header.session_id, 1U);
-    EXPECT_EQ(point_command.target_id, 1U);
 
     ASSERT_EQ(server.ingest(bytes(heartbeat(far_effector, 5)), far_source, 1'101),
               c2::InboundResult::accepted);
@@ -832,12 +831,18 @@ TEST(ServerRuntimeAssignmentTest, EnforcesAssignedAttackSafetyAndStopsDisconnect
               c2::DispatchError::command_rejected);
     ASSERT_TRUE(std::holds_alternative<c2::EffectorTurretCommand>(
         server.point_effector(1, 107)));
+    // Manual pointing must not bypass target identity checks.
+    EXPECT_EQ(std::get<c2::DispatchError>(server.attack(c2::AttackAction::arm, 1, 0, 108)), c2::DispatchError::command_rejected);
+    auto tracking = effector_status(effector, 5);
+    tracking.tracking_track_id = 1;
+    ASSERT_EQ(server.ingest(bytes(tracking), effector_source, 108), c2::InboundResult::accepted);
     const auto arm = server.attack(c2::AttackAction::arm, 1, 0, 108);
     ASSERT_TRUE(std::holds_alternative<c2::AttackCommand>(arm));
     EXPECT_EQ(std::get<c2::AttackCommand>(arm).header.asset_id, 201U);
     EXPECT_EQ(std::get<c2::AttackCommand>(arm).header.session_id, 9U);
 
-    auto armed = effector_status(effector, 5);
+    auto armed = effector_status(effector, 6);
+    armed.tracking_track_id = 1;
     armed.attack_armed = true;
     ASSERT_EQ(server.ingest(bytes(armed), effector_source, 109), c2::InboundResult::accepted);
     const auto start = server.attack(c2::AttackAction::start, 1, 500, 110);

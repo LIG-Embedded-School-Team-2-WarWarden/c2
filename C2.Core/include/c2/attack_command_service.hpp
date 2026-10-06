@@ -43,7 +43,6 @@ public:
     explicit AttackCommandService(AttackCommandConfig config);
 
     [[nodiscard]] AttackStatusUpdateResult update_status(const EffectorStatus& status);
-    [[nodiscard]] bool record_pointing_command(const EffectorTurretCommand& command);
     [[nodiscard]] AttackCommandResult create(
         AttackAction action, std::uint64_t target_id,
         std::uint32_t duration_ms, std::uint64_t now_us);
@@ -60,7 +59,6 @@ private:
     AttackCommandConfig config_;
     std::mutex mutex_;
     std::optional<EffectorStatus> status_;
-    std::optional<EffectorTurretCommand> pointing_command_;
     CommandIdentity identity_;
 };
 }  // namespace c2

@@ -186,7 +186,6 @@
     <ClInclude Include="include\c2\command_identity.hpp" />
     <ClInclude Include="include\c2\datagram_sender.hpp" />
     <ClInclude Include="include\c2\datagram_processor.hpp" />
-    <ClInclude Include="include\c2\routed_point_store.hpp" />
     <ClInclude Include="include\c2\runtime_types.hpp" />
     <ClInclude Include="include\c2\inbound_rejection_log.hpp" />
     <ClInclude Include="include\c2\track_update_publisher.hpp" />

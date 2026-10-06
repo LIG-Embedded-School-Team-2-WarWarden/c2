@@ -104,7 +104,6 @@ private:
     std::uint64_t session_id_{};
     ObservationTurretLimits limits_;
     EffectorStatus status_;
-    std::uint64_t current_target_id_{};
     std::uint64_t attack_end_us_{};
     std::optional<TargetTrackUpdate> target_update_;
     std::uint32_t sequence_{1};
