@@ -1,0 +1,28 @@
+name: Live FCS standalone tests
+on:
+  push:
+    paths: ['tools/fcs-live/**', 'C2.Core/**', 'scripts/*live*', '.github/workflows/live-fcs-ci.yml']
+  pull_request:
+    paths: ['tools/fcs-live/**', 'C2.Core/**', 'scripts/*live*', '.github/workflows/live-fcs-ci.yml']
+jobs:
+  loopback:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build standalone ECS
+        run: |
+          cmake -S tools/fcs-live -B build/fcs-live-original-gui -A x64
+          cmake --build build/fcs-live-original-gui --config Release
+      - name: Build IPC test client
+        run: dotnet build tools/fcs-live/tests/GuiProbe.csproj -c Release -o build/fcs-live-original-gui/probe
+      - name: Test isolated simulator and upstream GUI contract
+        run: |
+          python tools/fcs-live/test_live_gui.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/fcs-live/test_live_gui.py --original

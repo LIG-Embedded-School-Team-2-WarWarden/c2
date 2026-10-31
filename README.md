@@ -1,5 +1,37 @@
 # C2
 
+## 실물 FCS · fake RDR · GitHub 원본 GUI 시험
+
+현재 실물 연동 테스트는 **[테스트 실행 가이드](tools/fcs-live/QUICKSTART.md)** 를 따릅니다.
+`tools/fcs-live`의 독립 ECS는 수동 Big Endian EF/FE 코덱을 사용하며 Protobuf가 필요 없습니다.
+GitHub GUI 원본을 수정 없이 별도 빌드하고, 연결·상태 확인·할당·데모·취소를 연동합니다.
+
+Windows에서 C++ 개발 도구·CMake·.NET 10 SDK·Python(Tkinter 포함)을 준비한 뒤,
+저장소 루트의 Developer PowerShell에서 실행합니다.
+
+```powershell
+cmake -S tools/fcs-live -B build/fcs-live-original-gui -A x64
+cmake --build build/fcs-live-original-gui --config Release
+git clone https://github.com/LIG-Embedded-School-Team-2-WarWarden/c2-GUI.git build/gui-upstream-source
+git -C build/gui-upstream-source checkout --detach fe22d07ded6258075c5260f45eb1b7747a131e70
+dotnet build build/gui-upstream-source/AadcCommandCenter.csproj -c Release -o build/gui-upstream-bin
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_live_fcs_test.ps1 `
+  -EcsAddress 10.0.0.105 -FcsAddress 10.0.0.3 -FcsPort 2000
+```
+
+`EcsAddress`는 실제 PC 유선 IP, `FcsAddress`는 보드 IP로 바꾸세요. IP는 실행 전에
+설정돼 있어야 하며 중복되면 안 됩니다. 시작하면 fake RDR·ECS·GUI 세 창이 열립니다.
+로그는 `build/live-fcs-sessions/<세션ID>/`에 저장됩니다. 현재 발사는 EF05 데모이며
+EF04 ON → EF05 순차 동작은 아직 구현하지 않았습니다.
+
+- [빌드 및 실행](tools/fcs-live/QUICKSTART.md#2-소스-및-빌드)
+- [IP·포트 설정](tools/fcs-live/QUICKSTART.md#3-유선-ip와-포트)
+- [로그·오류 사유](tools/fcs-live/QUICKSTART.md#5-로그와-거부-사유)
+- [실물 없이 회귀시험](tools/fcs-live/QUICKSTART.md#6-장비-없이-회귀시험)
+
+아래 문서는 기존 루트 서버 경로입니다. 실물 EF/FE 테스트 실행 파일과 구분하세요.
+
+
 MFS 시연 체계의 C++20 기반 통제소 서버다. 임의 개수의 관측·타격 자산을
 동적으로 등록하고, 관측 결과를 전역 트랙으로 관리하며, 안전 조건을 만족하는
 타격 자산을 자동 또는 수동으로 할당한다. UDP/Protobuf v3 메시지 계약과 공용

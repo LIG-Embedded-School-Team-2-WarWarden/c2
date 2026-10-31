@@ -53,3 +53,7 @@ packages/
 
 # Runtime rolling event logs
 logs/
+
+# Python simulator/test cache
+__pycache__/
+*.py[cod]
