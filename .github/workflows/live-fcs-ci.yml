@@ -26,3 +26,9 @@ jobs:
           python tools/fcs-live/test_live_gui.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/fcs-live/test_live_gui.py --original
+      - name: Upload loopback diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-fcs-loopback-diagnostics
+          path: build/fcs-live-original-gui/test-*/

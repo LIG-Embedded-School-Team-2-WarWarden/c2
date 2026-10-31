@@ -33,7 +33,7 @@ while (Console.ReadLine() is string line && line!="quit") {
             throw new Exception("Invalid IPC frame");
         Console.WriteLine(JsonSerializer.Serialize(new { payload=new {
             targetCount=word(120), fcsAssets=new[] {new {
-                isEnabled=word(72), isOperating=word(76), isConnected=word(80), azimuthDeg=word(88)
+                isEnabled=word(72), isOperating=word(76), isConnected=word(80), laserOn=word(84), azimuthDeg=word(88)
             }}
         }}));
     } else {

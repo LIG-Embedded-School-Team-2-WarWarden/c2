@@ -185,7 +185,11 @@ def main(original=False):
         assert fcs.requests.count(0xEF05) == 1
         assert command(2, 1)['ResultCode'] == 0
         assert command(0)['AssignmentState'] == 0
-        assert command(1,1)['ResultCode']==0
+        # EF04 acknowledgement and FE02 telemetry are separate. Observe the
+        # refreshed idle frame before making another request; don't retry commands.
+        wait(lambda: (p := ready_frame()) and not p['fcsAssets'][0]['laserOn'])
+        reassigned = command(1,1)
+        assert reassigned['ResultCode']==0, reassigned
         wait(lambda: command(0)['AssignmentState']==2)
         fcs.drop_demo=True
         assert command(3,1)['ResultCode']==13
@@ -199,6 +203,12 @@ def main(original=False):
         print('PASS: isolated live IPC; temporary FCS/RDR loss recovers without commands; '
               'changed targets/faults remain blocked; explicit reassignment; demo completion; '
               'unknown outcome blocks retry; cancellation; persistent diagnostic reasons')
+    except Exception:
+        for name in ('events.log', 'status.json', 'stdout.log', 'stderr.log'):
+            path = folder / name
+            print(f'--- {name} ---\n{path.read_text() if path.exists() else "missing"}', flush=True)
+        print(f'FCS requests: {fcs.requests}; RDR: {rdr.snapshot()}', flush=True)
+        raise
     finally:
         if probe:
             try:
