@@ -1,6 +1,7 @@
 #include "c2/fcs_client.hpp"
 #include "gui/ipc_server.hpp"
 #include "assignment_health.hpp"
+#include "fcs_angles.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -297,7 +298,9 @@ int main(int argc, char** argv) {
             // Pinned GUI v2 uses isOperating as operation availability, not MOVING.
             p.rdr.operating=observation.connected; p.rdr.azimuth=display_angle(observation.pan); p.rdr.elevation=int(observation.tilt);
             p.fcs.connected=state.connected; p.fcs.enabled=ready; p.fcs.operating=ready;
-            p.fcs.laser_on=current && (flags&4); p.fcs.azimuth=current ? state.status->azimuth : 0;
+            p.fcs.laser_on=current && (flags&4);
+            p.fcs.azimuth=current && state.status->azimuth!=-32768 ?
+                fcs_motor_to_gui_azimuth(state.status->azimuth) : 0;
             p.fcs.elevation=current && state.status->elevation!=-32768 ? state.status->elevation : 0;
             for (const auto& t:observation.targets) {
                 if(p.target_count==gui::target_capacity) break;

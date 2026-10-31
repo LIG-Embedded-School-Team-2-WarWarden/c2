@@ -123,12 +123,19 @@ def main(original=False):
 
         frame = wait(ready_frame)
         assert frame['fcsAssets'][0]['isOperating'] == 1
+        # Telemetry conversion must never issue motor/output commands.
+        assert frame['fcsAssets'][0]['azimuthDeg'] == 0  # motor north = 180
+        for motor, displayed in ((120, 300), (179, 359), (181, 1), (240, 60),
+                                 (0, 180), (360, 180), (-32768, 0), (180, 0)):
+            fcs.pan = motor
+            wait(lambda: query('frame')['payload']['fcsAssets'][0]['azimuthDeg'] == displayed)
+        wait(ready_frame)  # wait for valid telemetry after the sentinel case
         assert all(k in (0xEF01, 0xEF02) for k in fcs.requests), fcs.requests
         assert rdr.snapshot()['acked'] > 0
         assert command(1, 1)['ResultCode'] == 0
         wait(lambda: command(0)['AssignmentState'] == 2)
         assert (fcs.pan, fcs.tilt) == (184, 2)
-        wait(lambda: query('frame')['payload']['fcsAssets'][0]['azimuthDeg']==184)
+        wait(lambda: query('frame')['payload']['fcsAssets'][0]['azimuthDeg']==4)
         if original:
             fcs.drop_status=True
             wait(lambda: not query('frame')['payload']['fcsAssets'][0]['isEnabled'])
@@ -142,7 +149,7 @@ def main(original=False):
             wait(lambda: command(0)['AssignmentState']==3)
             assert command(3,1)['ResultCode']==6
             assert command(2,1)['ResultCode']==0
-            print('PASS: upstream GUI codes only; waiting blocks commands; fault handling; raw azimuth')
+            print('PASS: upstream GUI codes only; waiting blocks commands; fault handling; north-zero azimuth')
             return
         points=fcs.requests.count(0xEF03)
         fcs.drop_status=True

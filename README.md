@@ -5,6 +5,8 @@
 현재 실물 연동 테스트는 **[테스트 실행 가이드](tools/fcs-live/QUICKSTART.md)** 를 따릅니다.
 `tools/fcs-live`의 독립 ECS는 수동 Big Endian EF/FE 코덱을 사용하며 Protobuf가 필요 없습니다.
 GitHub GUI 원본을 수정 없이 별도 빌드하고, 연결·상태 확인·할당·데모·취소를 연동합니다.
+FCS 모터의 북쪽 180°는 ECS에서 GUI 북쪽 0°로 변환합니다.
+표시식은 `((모터 방위각 - 180) % 360 + 360) % 360`이며 모터 명령과 정렬 판정에는 원본 각도를 사용합니다.
 
 Windows에서 C++ 개발 도구·CMake·.NET 10 SDK·Python(Tkinter 포함)을 준비한 뒤,
 저장소 루트의 Developer PowerShell에서 실행합니다.
